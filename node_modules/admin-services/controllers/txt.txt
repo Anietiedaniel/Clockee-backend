@@ -1,0 +1,33 @@
+things left
+email notification
+audit log later phase two
+
+3️⃣ Admin edit-user form rules
+
+Profile completeness checker middleware
+Invite → Account created → Email sent → Set password → Profile complete
+
+
+Invite created
+↓
+User created with TEMP passwordHash
+↓
+User receives invite/reset link
+↓
+User sets password
+↓
+Profile complete
+↓
+Clock-in enabled
+
+
+
+LOGIN
+ ↓
+JWT issued
+ ↓
+Frontend calls /auth/profile
+ ↓
+Frontend sees missing fields
+ ↓
+Redirect to Complete Profile screen

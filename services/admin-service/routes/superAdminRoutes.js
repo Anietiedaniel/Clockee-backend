@@ -1,0 +1,34 @@
+// routes/superAdminRoutes.js
+import express from "express";
+import { protect } from "@clockee/shared";
+import { authorizeSuperAdmin } from "../middleware/authorizeSuperAdmin.js";
+
+
+import {
+  getAllInstitutions,
+  toggleInstitutionStatus,
+  assignInstitutionAdmin,
+  getAllUsersPlatform, updateUserRole,adminOnboardStatus,
+  superCreateAdmin, createInstitutionWithOwner
+} from "../controllers/superAdminController.js";
+
+const router = express.Router();
+
+router.use(protect, authorizeSuperAdmin);
+router.post(
+  "/register",
+  createInstitutionWithOwner
+);
+
+router.post("/create/:id/admin", superCreateAdmin);
+router.get("/institutions", getAllInstitutions);
+router.patch("/institutions/:id/status", toggleInstitutionStatus);
+router.patch("/institutions/:id/admin", assignInstitutionAdmin);
+router.get("/users",  getAllUsersPlatform);
+router.patch(
+  "/users/:id/role",
+  updateUserRole
+);
+router.get("/onboard", adminOnboardStatus);
+
+export default router;

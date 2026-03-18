@@ -1,0 +1,7 @@
+1️⃣ Are they authenticated? (protect)
+2️⃣ Is institution active?
+3️⃣ Is profile complete?
+4️⃣ Is today a working day?
+5️⃣ Is clock-in allowed by institution rules?
+6️⃣ Does user have remote override?
+7️⃣ If not remote → enforce GPS
