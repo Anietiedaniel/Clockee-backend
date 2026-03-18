@@ -1,0 +1,18 @@
+// import express from "express";
+// import { registerUser,loginUser, verifyToken, getProfile,generateBackupCodes, useBackupCode, forgotPassword, resetPassword   } from "../controllers/authController.js";
+// import { protect } from "@clockee/shared";
+
+
+// const router = express.Router();
+
+// // POST /auth/register
+// router.post("/register", registerUser);
+// router.post("/login", loginUser); 
+// router.get("/verify-token", verifyToken); 
+// router.get("/profile", protect, getProfile); 
+// router.post("/backup-codes/generate", protect, generateBackupCodes);
+// router.post("/backup-codes/use", useBackupCode);
+// router.post("/forgot-password", forgotPassword);
+// router.post("/reset-password/:token", resetPassword);
+
+// export default router;
