@@ -65,6 +65,8 @@ import bcrypt from "bcrypt";
 
 
 export const createInstitutionWithOwner = async (req, res) => {
+  console.log("🔥 ROUTE HIT");
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
