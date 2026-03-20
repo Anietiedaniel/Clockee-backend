@@ -16,26 +16,26 @@ const router = express.Router();
 router.get("/status", (req, res) => {
   res.json({
       status: "ok superAdminRoute",
-      service: "admin-service",
+      service: "admin-service working",
       timestamp: new Date().toISOString(),
     })
 });
 
-router.use(protect, authorizeSuperAdmin);
-router.post(
-  "/register",
-  createInstitutionWithOwner
-);
+// router.use(protect, authorizeSuperAdmin);
+// router.post(
+//   "/register",
+//   createInstitutionWithOwner
+// );
 
-router.post("/create/:id/admin", superCreateAdmin);
-router.get("/institutions", getAllInstitutions);
-router.patch("/institutions/:id/status", toggleInstitutionStatus);
-router.patch("/institutions/:id/admin", assignInstitutionAdmin);
-router.get("/users",  getAllUsersPlatform);
-router.patch(
-  "/users/:id/role",
-  updateUserRole
-);
-router.get("/onboard", adminOnboardStatus);
+// router.post("/create/:id/admin", superCreateAdmin);
+// router.get("/institutions", getAllInstitutions);
+// router.patch("/institutions/:id/status", toggleInstitutionStatus);
+// router.patch("/institutions/:id/admin", assignInstitutionAdmin);
+// router.get("/users",  getAllUsersPlatform);
+// router.patch(
+//   "/users/:id/role",
+//   updateUserRole
+// );
+// router.get("/onboard", adminOnboardStatus);
 
 export default router;

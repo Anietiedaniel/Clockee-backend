@@ -44,31 +44,31 @@ async function start() {
   app.get("/health", (req, res) =>
     res.json({
       status: "ok",
-      service: "admin-service",
+      service: "admin-service running",
       timestamp: new Date().toISOString(),
     })
   );
 
   // API routes (after DB connection!)
-  app.use((req, res, next) => {
-  console.log("REQUEST:", req.method, req.originalUrl);
-  next();
-});
+//   app.use((req, res, next) => {
+//   console.log("REQUEST:", req.method, req.originalUrl);
+//   next();
+// });
  
-app.use("/admin/super", superAdminRoutes);
-app.use("/admin/institutions", institutionRoutes);
-app.use("/admin/shifts", shiftRoutes);
-app.use("/admin/reports", reportRoutes);
-app.use("/admin/users", adminRoutes);
+app.use("/admin", superAdminRoutes);
+// app.use("/admin", institutionRoutes);
+// app.use("/admin", shiftRoutes);
+// app.use("/admin", reportRoutes);
+// app.use("/admin", adminRoutes);
 
   // 404 handler
-  app.use((req, res) => {
-    res.status(404).json({
-      success: false,
-      message: "Route not found",
-      path: req.originalUrl,
-    });
-  });
+  // app.use((req, res) => {
+  //   res.status(404).json({
+  //     success: false,
+  //     message: "Route not found",
+  //     path: req.originalUrl,
+  //   });
+  // });
 
   // Global error handler
   app.use((err, req, res, next) => {
