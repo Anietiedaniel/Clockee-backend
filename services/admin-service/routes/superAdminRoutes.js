@@ -14,7 +14,7 @@ import {
 
 const router = express.Router();
 
-router.use(protect, authorizeSuperAdmin);
+// router.use(protect, authorizeSuperAdmin);
 router.post("/status", (req, res) => {
   res.json({
       status: "ok superAdminRoute",
