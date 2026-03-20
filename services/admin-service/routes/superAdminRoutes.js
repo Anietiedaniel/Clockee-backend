@@ -1,4 +1,3 @@
-// routes/superAdminRoutes.js
 import express from "express";
 import { protect } from "@clockee/shared";
 import { authorizeSuperAdmin } from "../middleware/authorizeSuperAdmin.js";

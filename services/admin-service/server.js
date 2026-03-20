@@ -57,10 +57,10 @@ async function start() {
   next();
 });
  
- app.use("/admin/institutions", institutionRoutes);
+app.use("/admin/super", superAdminRoutes);
+app.use("/admin/institutions", institutionRoutes);
 app.use("/admin/shifts", shiftRoutes);
 app.use("/admin/reports", reportRoutes);
-app.use("/admin/super", superAdminRoutes);
 app.use("/admin/users", adminRoutes);
 
   // 404 handler
