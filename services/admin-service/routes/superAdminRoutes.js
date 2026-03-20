@@ -14,7 +14,6 @@ import {
 
 const router = express.Router();
 
-// router.use(protect, authorizeSuperAdmin);
 router.post("/status", (req, res) => {
   res.json({
       status: "ok superAdminRoute",
@@ -23,6 +22,7 @@ router.post("/status", (req, res) => {
     })
 });
 
+router.use(protect, authorizeSuperAdmin);
 router.post(
   "/register",
   createInstitutionWithOwner
