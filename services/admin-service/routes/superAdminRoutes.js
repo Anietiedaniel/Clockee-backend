@@ -14,7 +14,7 @@ import {
 
 const router = express.Router();
 
-router.post("/status", (req, res) => {
+router.get("/status", (req, res) => {
   res.json({
       status: "ok superAdminRoute",
       service: "admin-service",
