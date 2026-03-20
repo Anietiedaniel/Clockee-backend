@@ -6,11 +6,11 @@ import cors from "cors";
 import compression from "compression";
 
 import {connectDB} from "@clockee/shared";
-import institutionRoutes from "./routes/institutionRoutes.js";
-import shiftRoutes from "./routes/shiftRoutes.js";
-import reportRoutes from "./routes/reportRoutes.js";
-import superAdminRoutes from "./routes/superAdminRoutes.js";
-import adminRoutes from "./routes/adminRoutes.js";
+// import institutionRoutes from "./routes/institutionRoutes.js";
+// import shiftRoutes from "./routes/shiftRoutes.js";
+// import reportRoutes from "./routes/reportRoutes.js";
+// import superAdminRoutes from "./routes/superAdminRoutes.js";
+// import adminRoutes from "./routes/adminRoutes.js";
 
 // Load environment variables
 dotenv.config();
@@ -45,8 +45,6 @@ async function start() {
     res.json({
       status: "ok",
       service: "admin-service",
-      environment: NODE_ENV,
-      uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     })
   );
@@ -57,11 +55,11 @@ async function start() {
   next();
 });
  
-app.use("/admin/super", superAdminRoutes);
-app.use("/admin/institutions", institutionRoutes);
-app.use("/admin/shifts", shiftRoutes);
-app.use("/admin/reports", reportRoutes);
-app.use("/admin/users", adminRoutes);
+// app.use("/admin/super", superAdminRoutes);
+// app.use("/admin/institutions", institutionRoutes);
+// app.use("/admin/shifts", shiftRoutes);
+// app.use("/admin/reports", reportRoutes);
+// app.use("/admin/users", adminRoutes);
 
   // // 404 handler
   // app.use((req, res) => {
