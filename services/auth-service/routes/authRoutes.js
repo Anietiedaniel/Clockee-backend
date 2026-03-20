@@ -23,9 +23,14 @@ import { protect, User} from "@clockee/shared";
 const router = express.Router();
 
 /* ========== AUTH ROUTES ========== */
-router.get("/debug/users", async (req, res) => {
+router.get('/debug/db', async (req, res) => {
   const users = await User.find();
-  res.json('route exist');
+
+  res.json({
+    db: mongoose.connection.name,
+    count: users.length,
+    users
+  });
 });
 router.post("/register", registerUser);
 router.post("/visitor/register", registerVisitor);
