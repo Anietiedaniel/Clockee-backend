@@ -6,11 +6,11 @@ import cors from "cors";
 import compression from "compression";
 
 import {connectDB} from "@clockee/shared";
-// import institutionRoutes from "./routes/institutionRoutes.js";
-// import shiftRoutes from "./routes/shiftRoutes.js";
-// import reportRoutes from "./routes/reportRoutes.js";
-// import superAdminRoutes from "./routes/superAdminRoutes.js";
-// import adminRoutes from "./routes/adminRoutes.js";
+import institutionRoutes from "./routes/institutionRoutes.js";
+import shiftRoutes from "./routes/shiftRoutes.js";
+import reportRoutes from "./routes/reportRoutes.js";
+import superAdminRoutes from "./routes/superAdminRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 // Load environment variables
 dotenv.config();
@@ -20,7 +20,7 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 
 // Validate required env vars
 if (!process.env.MONGO_URI) {
-  console.error("❌ Missing required env variable: MONGO_URI");
+  console.error("Missing required env variable: MONGO_URI");
   process.exit(1);
 }
 
@@ -55,20 +55,20 @@ async function start() {
   next();
 });
  
-// app.use("/admin/super", superAdminRoutes);
-// app.use("/admin/institutions", institutionRoutes);
-// app.use("/admin/shifts", shiftRoutes);
-// app.use("/admin/reports", reportRoutes);
-// app.use("/admin/users", adminRoutes);
+app.use("/admin/super", superAdminRoutes);
+app.use("/admin/institutions", institutionRoutes);
+app.use("/admin/shifts", shiftRoutes);
+app.use("/admin/reports", reportRoutes);
+app.use("/admin/users", adminRoutes);
 
-  // // 404 handler
-  // app.use((req, res) => {
-  //   res.status(404).json({
-  //     success: false,
-  //     message: "Route not found",
-  //     path: req.originalUrl,
-  //   });
-  // });
+  // 404 handler
+  app.use((req, res) => {
+    res.status(404).json({
+      success: false,
+      message: "Route not found",
+      path: req.originalUrl,
+    });
+  });
 
   // Global error handler
   app.use((err, req, res, next) => {
