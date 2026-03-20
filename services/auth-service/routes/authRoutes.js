@@ -18,12 +18,15 @@ import {
   
 } from "../controllers/authController.js";
 
-import { protect } from "@clockee/shared";
+import { protect, User} from "@clockee/shared";
 
 const router = express.Router();
 
 /* ========== AUTH ROUTES ========== */
-
+router.get('/debug/users', async (req, res) => {
+  const users = await User.find();
+  res.json(users);
+});
 router.post("/register", registerUser);
 router.post("/visitor/register", registerVisitor);
 router.post("/login", loginUser); 

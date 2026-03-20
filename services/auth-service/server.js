@@ -7,6 +7,7 @@ import morgan from "morgan";
 import cors from "cors";
 import {connectDB} from "@clockee/shared";
 import authRouter from "./routes/authRoutes.js";
+console.log("MONGO_URI:", process.env.MONGO_URI);
 
 const PORT = process.env.PORT || 4000;
 
