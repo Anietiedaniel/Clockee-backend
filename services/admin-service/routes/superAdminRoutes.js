@@ -15,6 +15,11 @@ import {
 const router = express.Router();
 
 router.use(protect, authorizeSuperAdmin);
+router.post("/reg", (req, res) => {
+  console.log("🔥 HIT REGISTER ROUTE");
+  res.send("Route working");
+});
+
 router.post(
   "/register",
   createInstitutionWithOwner
