@@ -53,11 +53,11 @@ async function start() {
 
   // API routes (after DB connection!)
  
-  app.use("/admin", institutionRoutes);
-  app.use("/admin", shiftRoutes);
-  app.use("/admin", reportRoutes);
-  app.use("/admin", superAdminRoutes);
-  app.use("/admin", adminRoutes);
+ app.use("/admin/institutions", institutionRoutes);
+app.use("/admin/shifts", shiftRoutes);
+app.use("/admin/reports", reportRoutes);
+app.use("/admin/super", superAdminRoutes);
+app.use("/admin/users", adminRoutes);
 
   // 404 handler
   app.use((req, res) => {
