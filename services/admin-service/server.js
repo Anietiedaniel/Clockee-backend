@@ -15,7 +15,7 @@ import adminRoutes from "./routes/adminRoutes.js";
 // Load environment variables
 dotenv.config();
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 4001;
 const NODE_ENV = process.env.NODE_ENV || "development";
 
 // Validate required env vars

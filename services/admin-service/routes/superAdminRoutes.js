@@ -15,9 +15,12 @@ import {
 const router = express.Router();
 
 router.use(protect, authorizeSuperAdmin);
-router.post("/reg", (req, res) => {
-  console.log("🔥 HIT REGISTER ROUTE");
-  res.send("Route working");
+router.post("/status", (req, res) => {
+  res.json({
+      status: "ok superAdminRoute",
+      service: "admin-service",
+      timestamp: new Date().toISOString(),
+    })
 });
 
 router.post(
