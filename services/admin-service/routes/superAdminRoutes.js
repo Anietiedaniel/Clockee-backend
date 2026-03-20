@@ -13,13 +13,7 @@ import {
 
 const router = express.Router();
 
-router.get("/status", (req, res) => {
-  res.json({
-      status: "ok superAdminRoute",
-      service: "admin-service working",
-      timestamp: new Date().toISOString(),
-    })
-});
+
 
 // router.use(protect, authorizeSuperAdmin);
 // router.post(

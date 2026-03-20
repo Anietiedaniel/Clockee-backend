@@ -49,6 +49,14 @@ async function start() {
     })
   );
 
+  app.get("/status", (req, res) => {
+  res.json({
+      status: "ok superAdminRoute",
+      service: "admin-service working",
+      timestamp: new Date().toISOString(),
+    })
+});
+
   // API routes (after DB connection!)
 //   app.use((req, res, next) => {
 //   console.log("REQUEST:", req.method, req.originalUrl);
