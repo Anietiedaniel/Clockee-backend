@@ -23,7 +23,7 @@ import { protect, User} from "@clockee/shared";
 const router = express.Router();
 
 /* ========== AUTH ROUTES ========== */
-router.get('/debug/users', async (req, res) => {
+router.get("/debug/users", async (req, res) => {
   const users = await User.find();
   res.json('route exist');
 });
