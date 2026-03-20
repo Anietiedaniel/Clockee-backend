@@ -63,14 +63,14 @@ app.use("/admin/shifts", shiftRoutes);
 app.use("/admin/reports", reportRoutes);
 app.use("/admin/users", adminRoutes);
 
-  // 404 handler
-  app.use((req, res) => {
-    res.status(404).json({
-      success: false,
-      message: "Route not found",
-      path: req.originalUrl,
-    });
-  });
+  // // 404 handler
+  // app.use((req, res) => {
+  //   res.status(404).json({
+  //     success: false,
+  //     message: "Route not found",
+  //     path: req.originalUrl,
+  //   });
+  // });
 
   // Global error handler
   app.use((err, req, res, next) => {
