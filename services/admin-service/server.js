@@ -52,6 +52,10 @@ async function start() {
   );
 
   // API routes (after DB connection!)
+  app.use((req, res, next) => {
+  console.log("REQUEST:", req.method, req.originalUrl);
+  next();
+});
  
  app.use("/admin/institutions", institutionRoutes);
 app.use("/admin/shifts", shiftRoutes);
