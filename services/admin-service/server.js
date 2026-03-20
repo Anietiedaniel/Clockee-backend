@@ -64,10 +64,10 @@ async function start() {
 // });
  
 app.use("/admin", superAdminRoutes);
-// app.use("/admin", institutionRoutes);
-// app.use("/admin", shiftRoutes);
-// app.use("/admin", reportRoutes);
-// app.use("/admin", adminRoutes);
+app.use("/admin", institutionRoutes);
+app.use("/admin", shiftRoutes);
+app.use("/admin", reportRoutes);
+app.use("/admin", adminRoutes);
 
   // 404 handler
   // app.use((req, res) => {
