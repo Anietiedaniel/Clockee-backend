@@ -25,7 +25,7 @@ const router = express.Router();
 /* ========== AUTH ROUTES ========== */
 router.get('/debug/users', async (req, res) => {
   const users = await User.find();
-  res.json(users);
+  res.json('route exist');
 });
 router.post("/register", registerUser);
 router.post("/visitor/register", registerVisitor);
