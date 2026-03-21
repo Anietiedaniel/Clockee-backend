@@ -1,6 +1,7 @@
 
 import { Institution, User } from "@clockee/shared";
 import bcrypt from "bcrypt";
+import mongoose from "mongoose";
 
 // only super admin can do this
 // old controller
