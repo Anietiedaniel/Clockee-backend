@@ -75,11 +75,11 @@ export const createInstitutionWithOwner = async (req, res) => {
     const { role, userId: adminId } = req.user;
 
     // Only super_admin can create
-    if (role !== "super_admin") {
-      return res.status(403).json({
-        message: "Only super admin can create institutions",
-      });
-    }
+    if (!Array.isArray(role) || !role.includes("super_admin")) {
+  return res.status(403).json({
+    message: "Only super admin can create institutions",
+  });
+}
 
     const {
       name,
