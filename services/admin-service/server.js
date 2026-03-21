@@ -68,15 +68,14 @@ app.use("/admin", adminRoutes);
 
   // Global error handler
   app.use((err, req, res, next) => {
-    console.error("Unhandled Error:", err);
-    res.status(err.status || 500).json({
-      success: false,
-      message:
-        NODE_ENV === "production" ? "Internal server error" : err.message,
-      ...(NODE_ENV !== "production" && { stack: err.stack }),
-    });
-  });
+  console.error(" ERROR:", err); // important
 
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message,   // show real error
+    stack: err.stack       // TEMPORARY
+  });
+});
   // Start server
   app.listen(PORT, () =>
     console.log(`🚀 Admin service running on port ${PORT} (${NODE_ENV})`)

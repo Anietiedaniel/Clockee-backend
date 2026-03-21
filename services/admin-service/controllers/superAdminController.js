@@ -245,6 +245,7 @@ export const superCreateAdmin = async (req, res) => {
       isActive: true,
       createdBy:SuperAdminInstitutionId,
       creatorName : creator?.name,
+      phone: phone,
       
     });
 
