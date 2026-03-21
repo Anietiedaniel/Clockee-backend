@@ -1,0 +1,24 @@
+{
+  "name": "clock-services",
+  "version": "1.0.0",
+  "description": "Clockee clock Service is a microservice responsible for **user authentication, authorization, and account management** in the Clockee Attendance System.  \r It supports registration, login, JWT-based authentication, and backup code fallback.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon server.js",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@clockee/shared": "file:../../packages/shared",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "moment-timezone": "^0.6.0",
+    "morgan": "^1.10.1",
+    "node-cron": "^4.2.1"
+  }
+}
