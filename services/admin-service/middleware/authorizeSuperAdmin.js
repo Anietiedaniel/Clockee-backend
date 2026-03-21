@@ -1,6 +1,6 @@
 export const authorizeSuperAdmin = (req, res, next) => {
   if (!req.user.role || !req.user.role.includes("super_admin")) {
-    return res.status(403).json({ message: "Super admin access required" });
+    return res.status(403).json({ message: "Super admin access required!!" });
   }
   next();
 };
