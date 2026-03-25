@@ -184,38 +184,62 @@ export const createInstitutionWithOwner = async (req, res) => {
 export const superCreateAdmin = async (req, res) => {
   try {
     const {
-      role: requesterRole,
+      role: requesterRoles,
       institutionId: SuperAdminInstitutionId,
       userId: createdBy,
     } = req.user;
 
     const { id: targetInstitutionId } = req.params;
 
-    const {
+    let {
       name,
       email,
       role,
       departmentOrUnit,
       studentOrStaffId,
       password,
-      phone
+      phone,
     } = req.body;
 
-    
     if (!targetInstitutionId) {
       return res.status(400).json({ message: "Institution ID is required" });
     }
 
+    // Normalize role to array
+    if (!Array.isArray(role)) {
+      role = [role];
+    }
+
+    // Allowed roles
+    const allowedRoles = ["super_admin", "admin", "staff", "student", "pending", "rejected"];
+
+    // Validate roles
+    const invalidRoles = role.filter(r => !allowedRoles.includes(r));
+    if (invalidRoles.length > 0) {
+      return res.status(400).json({
+        message: `Invalid roles: ${invalidRoles.join(", ")}`,
+      });
+    }
+
+    // Ensure requester roles is array
+    const requesterRoleArray = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
+
     // Prevent privilege escalation
-    if (requesterRole !== "super_admin" && role === "super_admin") {
+    if (
+      !requesterRoleArray.includes("super_admin") &&
+      role.includes("super_admin")
+    ) {
       return res.status(403).json({
         message: "You cannot create a super admin user",
       });
     }
 
-     if (role !== "admin") {
+    // Only allow admin creation
+    if (!role.includes("admin")) {
       return res.status(405).json({
-        message: "only admin role allowed",
+        message: "Only admin role allowed",
       });
     }
 
@@ -224,7 +248,7 @@ export const superCreateAdmin = async (req, res) => {
       return res.status(409).json({ message: "Email already exists" });
     }
 
-    // Fetch institution (IMPORTANT)
+    // Fetch institution
     const institution = await Institution.findById(targetInstitutionId);
     if (!institution) {
       return res.status(404).json({ message: "Institution not found" });
@@ -236,30 +260,30 @@ export const superCreateAdmin = async (req, res) => {
     const user = await User.create({
       name,
       email,
-      role,
-      institutionId:targetInstitutionId,
+      role, 
+      institutionId: targetInstitutionId,
       institutionName: institution.name,
-      institutionType: institution.type, // must be "school" or "company"
+      institutionType: institution.type,
       departmentOrUnit,
       studentOrStaffId,
       passwordHash,
       isActive: true,
-      createdBy:SuperAdminInstitutionId,
-      creatorName : creator?.name,
-      phone: phone,
-      
+      createdBy: SuperAdminInstitutionId,
+      creatorName: creator?.name,
+      phone,
     });
 
     res.status(201).json({
       message: "User created successfully",
       user,
     });
+
   } catch (err) {
     console.error("Admin create user error:", err);
 
     res.status(500).json({
       message: "Failed to create user",
-      error: err.message, // KEEP THIS
+      error: err.message,
     });
   }
 };
