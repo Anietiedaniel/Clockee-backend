@@ -162,11 +162,6 @@ export const disableInstitutionInvite = async (req, res) => {
 
 
 
-import bcrypt from "bcrypt";
-import mongoose from "mongoose";
-import User from "../models/User.js";
-import Institution from "../models/Institution.js";
-
 export const adminCreateUser = async (req, res) => {
   try {
     const {
@@ -175,7 +170,7 @@ export const adminCreateUser = async (req, res) => {
       userId: createdBy,
     } = req.user;
 
-    let { id: targetInstitutionId } = req.params;
+    let { institutionId: targetInstitutionId } = req.params;
 
     let {
       name,
