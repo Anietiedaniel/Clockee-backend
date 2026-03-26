@@ -185,16 +185,18 @@ export const superCreateAdmin = async (req, res) => {
   try {
     const {
       role: requesterRoles,
-      institutionId: SuperAdminInstitutionId,
+      institutionId: requesterInstitutionId,
       userId: createdBy,
     } = req.user;
 
     const { id: targetInstitutionId } = req.params;
+
+    // Validate ObjectId
     if (!targetInstitutionId || !mongoose.Types.ObjectId.isValid(targetInstitutionId)) {
-  return res.status(400).json({
-    message: "Invalid or missing Institution ID",
-  });
-}
+      return res.status(400).json({
+        message: "Invalid or missing Institution ID",
+      });
+    }
 
     let {
       name,
@@ -206,9 +208,17 @@ export const superCreateAdmin = async (req, res) => {
       phone,
     } = req.body;
 
-    if (!targetInstitutionId) {
-      return res.status(400).json({ message: "Institution ID is required" });
+    // Required fields
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "Name, email and password are required",
+      });
     }
+
+    //  Normalize inputs
+    name = name.trim();
+    email = email.toLowerCase().trim();
+    phone = phone?.trim();
 
     // Normalize role to array
     if (!Array.isArray(role)) {
@@ -226,46 +236,62 @@ export const superCreateAdmin = async (req, res) => {
       });
     }
 
-    // Ensure requester roles is array
+    //  Ensure requester roles is array
     const requesterRoleArray = Array.isArray(requesterRoles)
       ? requesterRoles
       : [requesterRoles];
 
-    // Prevent privilege escalation
-    if (
-      !requesterRoleArray.includes("super_admin") &&
-      role.includes("super_admin")
-    ) {
+    // Authorization check (ONLY super_admin can create admin)
+    if (!requesterRoleArray.includes("super_admin")) {
       return res.status(403).json({
-        message: "You cannot create a super admin user",
+        message: "Only super admin can create admin users",
       });
     }
 
-    // Only allow admin creation
-    if (!role.includes("admin")) {
+    // Strict admin-only creation
+    if (!(role.length === 1 && role[0] === "admin")) {
       return res.status(405).json({
         message: "Only admin role allowed",
       });
     }
 
     // Prevent duplicate email
-    if (await User.findOne({ email })) {
-      return res.status(409).json({ message: "Email already exists" });
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({
+        message: "Email already exists",
+      });
     }
 
     // Fetch institution
     const institution = await Institution.findById(targetInstitutionId);
     if (!institution) {
-      return res.status(404).json({ message: "Institution not found" });
+      return res.status(404).json({
+        message: "Institution not found",
+      });
     }
 
+    // Ensure same institution (security)
+    if (
+      requesterInstitutionId &&
+      requesterInstitutionId.toString() !== targetInstitutionId
+    ) {
+      return res.status(403).json({
+        message: "You can only create admins within your institution",
+      });
+    }
+
+    // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
+
+    // Get creator name safely
     const creator = await User.findById(createdBy).select("name");
 
+    // Create user
     const user = await User.create({
       name,
       email,
-      role, 
+      role,
       institutionId: targetInstitutionId,
       institutionName: institution.name,
       institutionType: institution.type,
@@ -273,14 +299,18 @@ export const superCreateAdmin = async (req, res) => {
       studentOrStaffId,
       passwordHash,
       isActive: true,
-      createdBy: SuperAdminInstitutionId,
+      createdBy: createdBy, // 
       creatorName: creator?.name,
       phone,
     });
 
+    //  Remove sensitive data before sending
+    const userResponse = user.toObject();
+    delete userResponse.passwordHash;
+
     res.status(201).json({
-      message: "User created successfully",
-      user,
+      message: "Admin created successfully",
+      user: userResponse,
     });
 
   } catch (err) {
@@ -288,7 +318,7 @@ export const superCreateAdmin = async (req, res) => {
 
     res.status(500).json({
       message: "Failed to create user",
-      error: err.message,
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
   }
 };
