@@ -170,7 +170,7 @@ export const adminCreateUser = async (req, res) => {
       userId: createdBy,
     } = req.user;
 
-    let { institutionId: targetInstitutionId } = req.params;
+    let { id: targetInstitutionId } = req.params;
 
     let {
       name,

@@ -69,7 +69,7 @@ router.post(
   upload.single("file"), // field name in form-data
   bulkInvite
 );
-router.post("/institutions/:institutionId/staff", protect, authorizeAdmin, adminCreateUser);
+router.post("/institutions/:id/staff", protect, authorizeAdmin, adminCreateUser);
 
 router.patch(
   "/users/:id/deactivate",

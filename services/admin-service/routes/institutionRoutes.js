@@ -1,6 +1,6 @@
 import express from "express";
 import { protect } from "@clockee/shared";
-import { authorizeAdmin, } from "../middleware/authorizeAdmin.js";
+import { authorizeAdmin} from "../middleware/authorizeAdmin.js";
 import { authorizeSuperAdmin } from "../middleware/authorizeSuperAdmin.js";
 import {
   createBranch,
