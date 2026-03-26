@@ -161,88 +161,11 @@ export const disableInstitutionInvite = async (req, res) => {
 };
 
 
-// export const adminCreateUser = async (req, res) => {
-//   try {
-//     const {
-//       role: requesterRoles,
-//       institutionId: adminInstitutionId,
-//       userId: createdBy,
-//     } = req.user;
 
-//     const { id: targetInstitutionId } = req.params;
-
-//     const {
-//       name,
-//       email,
-//       role, // now expected as an array
-//       departmentOrUnit,
-//       studentOrStaffId,
-//       password,
-//     } = req.body;
-
-//     // Ensure role is an array
-//     if (!Array.isArray(role) || role.length === 0) {
-//       return res.status(400).json({ message: "Role must be a non-empty array" });
-//     }
-
-//     const institutionId =
-//       requesterRoles.includes("super_admin")
-//         ? targetInstitutionId
-//         : adminInstitutionId;
-
-//     if (!institutionId) {
-//       return res.status(400).json({ message: "Institution ID is required" });
-//     }
-
-//     // Prevent privilege escalation: non-super-admins cannot assign super_admin role
-//     if (!requesterRoles.includes("super_admin") && role.includes("super_admin")) {
-//       return res.status(403).json({
-//         message: "You cannot assign super admin role",
-//       });
-//     }
-
-//     // Prevent duplicate email
-//     if (await User.findOne({ email })) {
-//       return res.status(409).json({ message: "Email already exists" });
-//     }
-
-//     // Fetch institution
-//     const institution = await Institution.findById(institutionId);
-//     if (!institution) {
-//       return res.status(404).json({ message: "Institution not found" });
-//     }
-
-//     const passwordHash = await bcrypt.hash(password, 12);
-//     const creator = await User.findById(createdBy).select("name");
-
-//     const user = await User.create({
-//       name,
-//       email,
-//       role, // store as array
-//       institutionId,
-//       institutionName: institution.name,
-//       institutionType: institution.type,
-//       departmentOrUnit,
-//       studentOrStaffId,
-//       passwordHash,
-//       isActive: true,
-//       createdBy,
-//       creatorName: creator?.name,
-//     });
-
-//     res.status(201).json({
-//       message: "User created successfully",
-//       user,
-//     });
-//   } catch (err) {
-//     console.error("Admin create user error:", err);
-
-//     res.status(500).json({
-//       message: "Failed to create user",
-//       error: err.message,
-//     });
-//   }
-// };
+import bcrypt from "bcrypt";
+import mongoose from "mongoose";
+import User from "../models/User.js";
+import Institution from "../models/Institution.js";
 
 export const adminCreateUser = async (req, res) => {
   try {
@@ -252,7 +175,7 @@ export const adminCreateUser = async (req, res) => {
       userId: createdBy,
     } = req.user;
 
-    const { id: targetInstitutionId } = req.params;
+    let { id: targetInstitutionId } = req.params;
 
     let {
       name,
@@ -261,9 +184,10 @@ export const adminCreateUser = async (req, res) => {
       departmentOrUnit,
       studentOrStaffId,
       password,
+      phone,
     } = req.body;
 
-    // --- Required fields check ---
+    // --- Required fields ---
     if (!name || !email || !password) {
       return res.status(400).json({
         message: "Name, email and password are required",
@@ -274,6 +198,7 @@ export const adminCreateUser = async (req, res) => {
     name = name.trim();
     email = email.toLowerCase().trim();
     studentOrStaffId = studentOrStaffId?.trim();
+    phone = phone?.trim();
 
     // --- Ensure requesterRoles is an array ---
     const requesterRoleArray = Array.isArray(requesterRoles)
@@ -294,13 +219,24 @@ export const adminCreateUser = async (req, res) => {
       });
     }
 
-    // --- Determine institution ---
-    const institutionId = requesterRoleArray.includes("super_admin")
-      ? targetInstitutionId
-      : adminInstitutionId;
-
-    if (!institutionId) {
-      return res.status(400).json({ message: "Institution ID is required" });
+    // --- Determine institution based on requester role ---
+    let institutionId;
+    if (requesterRoleArray.includes("super_admin")) {
+      // Super admin must provide targetInstitutionId
+      if (!targetInstitutionId) {
+        return res.status(400).json({ message: "Super admin must provide a target institution ID" });
+      }
+      institutionId = targetInstitutionId;
+    } else if (requesterRoleArray.includes("admin")) {
+      // Admin can only create users for their own institution
+      institutionId = adminInstitutionId;
+      if (targetInstitutionId && targetInstitutionId !== adminInstitutionId) {
+        return res.status(403).json({
+          message: "Admins can only create users within their own institution",
+        });
+      }
+    } else {
+      return res.status(403).json({ message: "Admin access required" });
     }
 
     // --- Prevent privilege escalation ---
@@ -346,6 +282,7 @@ export const adminCreateUser = async (req, res) => {
       isActive: true,
       createdBy,
       creatorName: creator?.name || "System",
+      phone,
     });
 
     // --- Remove sensitive data before sending ---
