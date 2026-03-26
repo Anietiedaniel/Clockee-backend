@@ -164,7 +164,7 @@ export const disableInstitutionInvite = async (req, res) => {
 export const adminCreateUser = async (req, res) => {
   try {
     const {
-      role: requesterRole,
+      role: requesterRoles,
       institutionId: adminInstitutionId,
       userId: createdBy,
     } = req.user;
@@ -174,14 +174,19 @@ export const adminCreateUser = async (req, res) => {
     const {
       name,
       email,
-      role,
+      role, // now expected as an array
       departmentOrUnit,
       studentOrStaffId,
       password,
     } = req.body;
 
+    // Ensure role is an array
+    if (!Array.isArray(role) || role.length === 0) {
+      return res.status(400).json({ message: "Role must be a non-empty array" });
+    }
+
     const institutionId =
-      requesterRole === "super_admin"
+      requesterRoles.includes("super_admin")
         ? targetInstitutionId
         : adminInstitutionId;
 
@@ -189,10 +194,10 @@ export const adminCreateUser = async (req, res) => {
       return res.status(400).json({ message: "Institution ID is required" });
     }
 
-    // Prevent privilege escalation
-    if (requesterRole !== "super_admin" && role === "super_admin") {
+    // Prevent privilege escalation: non-super-admins cannot assign super_admin role
+    if (!requesterRoles.includes("super_admin") && role.includes("super_admin")) {
       return res.status(403).json({
-        message: "You cannot create a super admin user",
+        message: "You cannot assign super admin role",
       });
     }
 
@@ -201,7 +206,7 @@ export const adminCreateUser = async (req, res) => {
       return res.status(409).json({ message: "Email already exists" });
     }
 
-    // Fetch institution (IMPORTANT)
+    // Fetch institution
     const institution = await Institution.findById(institutionId);
     if (!institution) {
       return res.status(404).json({ message: "Institution not found" });
@@ -213,17 +218,16 @@ export const adminCreateUser = async (req, res) => {
     const user = await User.create({
       name,
       email,
-      role,
+      role, // store as array
       institutionId,
       institutionName: institution.name,
-      institutionType: institution.type, // must be "school" or "company"
+      institutionType: institution.type,
       departmentOrUnit,
       studentOrStaffId,
       passwordHash,
       isActive: true,
       createdBy,
-      creatorName : creator?.name,
-      
+      creatorName: creator?.name,
     });
 
     res.status(201).json({
@@ -235,7 +239,7 @@ export const adminCreateUser = async (req, res) => {
 
     res.status(500).json({
       message: "Failed to create user",
-      error: err.message, // KEEP THIS
+      error: err.message,
     });
   }
 };
