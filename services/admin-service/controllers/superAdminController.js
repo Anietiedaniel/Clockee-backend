@@ -190,6 +190,11 @@ export const superCreateAdmin = async (req, res) => {
     } = req.user;
 
     const { id: targetInstitutionId } = req.params;
+    if (!targetInstitutionId || !mongoose.Types.ObjectId.isValid(targetInstitutionId)) {
+  return res.status(400).json({
+    message: "Invalid or missing Institution ID",
+  });
+}
 
     let {
       name,
