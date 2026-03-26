@@ -215,10 +215,11 @@ export const superCreateAdmin = async (req, res) => {
       });
     }
 
-    //  Normalize inputs
+    // Normalize inputs
     name = name.trim();
     email = email.toLowerCase().trim();
     phone = phone?.trim();
+    studentOrStaffId = studentOrStaffId?.trim();
 
     // Normalize role to array
     if (!Array.isArray(role)) {
@@ -236,7 +237,7 @@ export const superCreateAdmin = async (req, res) => {
       });
     }
 
-    //  Ensure requester roles is array
+    // Ensure requester roles is array
     const requesterRoleArray = Array.isArray(requesterRoles)
       ? requesterRoles
       : [requesterRoles];
@@ -256,10 +257,16 @@ export const superCreateAdmin = async (req, res) => {
     }
 
     // Prevent duplicate email
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    if (await User.findOne({ email })) {
       return res.status(409).json({
         message: "Email already exists",
+      });
+    }
+
+    // Prevent duplicate studentOrStaffId
+    if (studentOrStaffId && await User.findOne({ studentOrStaffId })) {
+      return res.status(409).json({
+        message: "Staff/Student ID already exists",
       });
     }
 
@@ -299,12 +306,12 @@ export const superCreateAdmin = async (req, res) => {
       studentOrStaffId,
       passwordHash,
       isActive: true,
-      createdBy: createdBy, // 
+      createdBy,
       creatorName: creator?.name,
       phone,
     });
 
-    //  Remove sensitive data before sending
+    // Remove sensitive data before sending
     const userResponse = user.toObject();
     delete userResponse.passwordHash;
 
