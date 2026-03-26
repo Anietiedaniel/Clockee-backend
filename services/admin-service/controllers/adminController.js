@@ -161,6 +161,89 @@ export const disableInstitutionInvite = async (req, res) => {
 };
 
 
+// export const adminCreateUser = async (req, res) => {
+//   try {
+//     const {
+//       role: requesterRoles,
+//       institutionId: adminInstitutionId,
+//       userId: createdBy,
+//     } = req.user;
+
+//     const { id: targetInstitutionId } = req.params;
+
+//     const {
+//       name,
+//       email,
+//       role, // now expected as an array
+//       departmentOrUnit,
+//       studentOrStaffId,
+//       password,
+//     } = req.body;
+
+//     // Ensure role is an array
+//     if (!Array.isArray(role) || role.length === 0) {
+//       return res.status(400).json({ message: "Role must be a non-empty array" });
+//     }
+
+//     const institutionId =
+//       requesterRoles.includes("super_admin")
+//         ? targetInstitutionId
+//         : adminInstitutionId;
+
+//     if (!institutionId) {
+//       return res.status(400).json({ message: "Institution ID is required" });
+//     }
+
+//     // Prevent privilege escalation: non-super-admins cannot assign super_admin role
+//     if (!requesterRoles.includes("super_admin") && role.includes("super_admin")) {
+//       return res.status(403).json({
+//         message: "You cannot assign super admin role",
+//       });
+//     }
+
+//     // Prevent duplicate email
+//     if (await User.findOne({ email })) {
+//       return res.status(409).json({ message: "Email already exists" });
+//     }
+
+//     // Fetch institution
+//     const institution = await Institution.findById(institutionId);
+//     if (!institution) {
+//       return res.status(404).json({ message: "Institution not found" });
+//     }
+
+//     const passwordHash = await bcrypt.hash(password, 12);
+//     const creator = await User.findById(createdBy).select("name");
+
+//     const user = await User.create({
+//       name,
+//       email,
+//       role, // store as array
+//       institutionId,
+//       institutionName: institution.name,
+//       institutionType: institution.type,
+//       departmentOrUnit,
+//       studentOrStaffId,
+//       passwordHash,
+//       isActive: true,
+//       createdBy,
+//       creatorName: creator?.name,
+//     });
+
+//     res.status(201).json({
+//       message: "User created successfully",
+//       user,
+//     });
+//   } catch (err) {
+//     console.error("Admin create user error:", err);
+
+//     res.status(500).json({
+//       message: "Failed to create user",
+//       error: err.message,
+//     });
+//   }
+// };
+
 export const adminCreateUser = async (req, res) => {
   try {
     const {
@@ -171,54 +254,89 @@ export const adminCreateUser = async (req, res) => {
 
     const { id: targetInstitutionId } = req.params;
 
-    const {
+    let {
       name,
       email,
-      role, // now expected as an array
+      role,
       departmentOrUnit,
       studentOrStaffId,
       password,
     } = req.body;
 
-    // Ensure role is an array
+    // --- Required fields check ---
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "Name, email and password are required",
+      });
+    }
+
+    // --- Normalize inputs ---
+    name = name.trim();
+    email = email.toLowerCase().trim();
+    studentOrStaffId = studentOrStaffId?.trim();
+
+    // --- Ensure requesterRoles is an array ---
+    const requesterRoleArray = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
+
+    // --- Ensure role is always an array ---
     if (!Array.isArray(role) || role.length === 0) {
       return res.status(400).json({ message: "Role must be a non-empty array" });
     }
 
-    const institutionId =
-      requesterRoles.includes("super_admin")
-        ? targetInstitutionId
-        : adminInstitutionId;
+    // --- Validate allowed roles ---
+    const allowedRoles = ["super_admin", "admin", "staff", "student", "pending", "rejected"];
+    const invalidRoles = role.filter(r => !allowedRoles.includes(r));
+    if (invalidRoles.length > 0) {
+      return res.status(400).json({
+        message: `Invalid roles: ${invalidRoles.join(", ")}`,
+      });
+    }
+
+    // --- Determine institution ---
+    const institutionId = requesterRoleArray.includes("super_admin")
+      ? targetInstitutionId
+      : adminInstitutionId;
 
     if (!institutionId) {
       return res.status(400).json({ message: "Institution ID is required" });
     }
 
-    // Prevent privilege escalation: non-super-admins cannot assign super_admin role
-    if (!requesterRoles.includes("super_admin") && role.includes("super_admin")) {
+    // --- Prevent privilege escalation ---
+    if (!requesterRoleArray.includes("super_admin") && role.includes("super_admin")) {
       return res.status(403).json({
         message: "You cannot assign super admin role",
       });
     }
 
-    // Prevent duplicate email
+    // --- Prevent duplicate email ---
     if (await User.findOne({ email })) {
       return res.status(409).json({ message: "Email already exists" });
     }
 
-    // Fetch institution
+    // --- Prevent duplicate student/staff ID ---
+    if (studentOrStaffId && (await User.findOne({ studentOrStaffId }))) {
+      return res.status(409).json({ message: "Staff/Student ID already exists" });
+    }
+
+    // --- Fetch institution ---
     const institution = await Institution.findById(institutionId);
     if (!institution) {
       return res.status(404).json({ message: "Institution not found" });
     }
 
+    // --- Hash password ---
     const passwordHash = await bcrypt.hash(password, 12);
+
+    // --- Get creator name safely ---
     const creator = await User.findById(createdBy).select("name");
 
+    // --- Create user ---
     const user = await User.create({
       name,
       email,
-      role, // store as array
+      role,
       institutionId,
       institutionName: institution.name,
       institutionType: institution.type,
@@ -227,17 +345,21 @@ export const adminCreateUser = async (req, res) => {
       passwordHash,
       isActive: true,
       createdBy,
-      creatorName: creator?.name,
+      creatorName: creator?.name || "System",
     });
 
-    res.status(201).json({
+    // --- Remove sensitive data before sending ---
+    const userResponse = user.toObject();
+    delete userResponse.passwordHash;
+
+    return res.status(201).json({
       message: "User created successfully",
-      user,
+      user: userResponse,
     });
   } catch (err) {
     console.error("Admin create user error:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to create user",
       error: err.message,
     });
