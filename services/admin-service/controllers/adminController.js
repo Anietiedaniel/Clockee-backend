@@ -160,8 +160,6 @@ export const disableInstitutionInvite = async (req, res) => {
   }
 };
 
-
-
 export const adminCreateUser = async (req, res) => {
   try {
     const {
@@ -610,22 +608,33 @@ export const rejectUser = async (req, res) => {
 export const createInvite = async (req, res) => {
   try {
     const {
-      role: requesterRole,
+      role: requesterRoles,
       institutionId: adminInstitutionId,
       userId: adminId,
       name: creatorName,
     } = req.user;
 
-    const { email, role: inviteRole } = req.body;
+    let { email, role: inviteRole } = req.body;
     const { institutionId: targetInstitutionId } = req.query;
 
     const expiresInDays = 7;
 
-    /* ================= RESOLVE INSTITUTION ================= */
-    const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId
-        : adminInstitutionId;
+    // --- Normalize requester roles ---
+    const requesterRoleArray = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
+
+    // --- Normalize inviteRole to array ---
+    if (!Array.isArray(inviteRole) || inviteRole.length === 0) {
+      return res.status(400).json({
+        message: "Role must be a non-empty array",
+      });
+    }
+
+    // --- Resolve institution ---
+    const institutionId = requesterRoleArray.includes("super_admin")
+      ? targetInstitutionId
+      : adminInstitutionId;
 
     if (!institutionId) {
       return res.status(400).json({
@@ -633,25 +642,39 @@ export const createInvite = async (req, res) => {
       });
     }
 
-    /* ================= VALIDATION ================= */
+    // --- Validation ---
     if (!email) {
       return res.status(400).json({ message: "Email is required" });
     }
 
-    if (!["staff", "student", "admin"].includes(inviteRole)) {
+    const allowedRoles = ["staff", "student", "admin"];
+
+    const invalidRoles = inviteRole.filter(r => !allowedRoles.includes(r));
+    if (invalidRoles.length > 0) {
       return res.status(400).json({
-        message: "Valid invite role (staff, student, admin) is required",
+        message: `Invalid roles: ${invalidRoles.join(", ")}`,
       });
     }
 
-    const normalizedEmail = email.toLowerCase();
+    // --- Prevent privilege escalation ---
+    if (
+      !requesterRoleArray.includes("super_admin") &&
+      inviteRole.includes("admin")
+    ) {
+      return res.status(403).json({
+        message: "Only super admin can invite admin users",
+      });
+    }
 
-    /* ================= EXISTENCE CHECKS ================= */
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // --- Check existing user ---
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(409).json({ message: "User already exists" });
     }
 
+    // --- Check existing invite ---
     const existingInvite = await InviteToken.findOne({
       email: normalizedEmail,
       institutionId,
@@ -664,14 +687,14 @@ export const createInvite = async (req, res) => {
       });
     }
 
-    /* ================= CREATE INVITE ================= */
+    // --- Create invite ---
     const token = crypto.randomBytes(32).toString("hex");
 
     const invite = await InviteToken.create({
       token,
       email: normalizedEmail,
       institutionId,
-      role: inviteRole,
+      role: inviteRole, // now array
       creatorName,
       createdBy: adminId,
       expiresAt: new Date(
@@ -686,6 +709,7 @@ export const createInvite = async (req, res) => {
     });
   } catch (err) {
     console.error("Create invite error:", err);
+
     return res.status(500).json({
       message: "Failed to create invite",
       error: err.message,
