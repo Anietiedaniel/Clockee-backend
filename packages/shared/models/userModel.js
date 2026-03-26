@@ -55,8 +55,14 @@ const userSchema = new mongoose.Schema(
     // Department (school) or Unit (company)
     departmentOrUnit: { type: String },
 
-    // Student or staff/employee ID
-    studentOrStaffId: { type: String },
+  // Student or staff/employee ID
+    
+  studentOrStaffId: { 
+  type: String,
+  trim: true,
+  unique: true, 
+  
+},
 
     createdBy:{
     type: mongoose.Schema.Types.ObjectId,
