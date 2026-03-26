@@ -3,6 +3,8 @@ import crypto from "crypto";
 import fs from "fs";
 import bcrypt from "bcrypt";
 import csvParser from "csv-parser";
+import dotenv from "dotenv";
+dotenv.config();
 
 import { sendEmail } from "../../email-service/emailService.js";
 import { logAdminAction } from "../logs/auditLogger.js";
