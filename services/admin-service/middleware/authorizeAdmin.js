@@ -4,7 +4,14 @@ export const authorizeAdmin = (req, res, next) => {
   }
 
   const allowedRoles = ["admin", "super_admin"];
-  if (!allowedRoles.includes(req.user.role)) {
+
+  // Ensure req.user.role is an array
+  const userRoles = Array.isArray(req.user.role) ? req.user.role : [req.user.role];
+
+  // Check if user has at least one allowed role
+  const hasAccess = userRoles.some(role => allowedRoles.includes(role));
+
+  if (!hasAccess) {
     return res.status(403).json({ message: "Admin access required" });
   }
 
