@@ -22,10 +22,10 @@ const inviteTokenSchema = new mongoose.Schema(
     },
 
     role: {
-      type: String,
-      enum: ["admin", "staff", "student", "super_admin"],
-      required: true,
-    },
+    type: [String],
+    required: true,
+    enum: ["staff", "student", "admin"]
+  },
 
     departmentOrUnit: { type: String },
     studentOrStaffId: { type: String },
