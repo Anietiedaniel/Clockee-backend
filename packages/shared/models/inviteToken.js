@@ -49,14 +49,14 @@ const inviteTokenSchema = new mongoose.Schema(
       required: true,
     },
 
-//   inviteType: {
-//   type: String,
-//   enum: ["public", "direct"],
-//   required: true
-// }
+type: {
+  type: String,
+  enum: ["public_onboarding", "direct"],
+  required: true
+},
 
 
-     creatorName: String
+  creatorName: String
   },
   { timestamps: true }
 );

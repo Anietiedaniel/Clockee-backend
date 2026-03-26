@@ -854,30 +854,59 @@ export const generatePublicOnboardingLink = async (req, res) => {
     const {
       userId,
       name: creatorName,
-      role: requesterRole,
+      role: requesterRoles,
       institutionId: adminInstitutionId,
     } = req.user;
 
     const { institutionId: targetInstitutionId } = req.query;
-    const { targetRole } = req.body; // staff | student
+    let { targetRole } = req.body; // now will be array
 
-    if (!["staff", "student"].includes(targetRole)) {
+    // --- Normalize requester roles ---
+    const requesterRoleArray = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
+
+    // --- Normalize targetRole to array ---
+    if (!Array.isArray(targetRole) || targetRole.length === 0) {
       return res.status(400).json({
-        message: "targetRole must be staff or student",
+        message: "targetRole must be a non-empty array",
       });
     }
 
-    if (requesterRole === "super_admin" && !targetInstitutionId) {
+    const allowedRoles = ["staff", "student"];
+
+    const invalidRoles = targetRole.filter(r => !allowedRoles.includes(r));
+    if (invalidRoles.length > 0) {
       return res.status(400).json({
-        message: "institutionId is required for super admin",
+        message: `Invalid roles: ${invalidRoles.join(", ")}`,
       });
     }
 
-    const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId
-        : adminInstitutionId;
+    // --- Resolve institution ---
+    let institutionId;
 
+    if (requesterRoleArray.includes("super_admin")) {
+      if (!targetInstitutionId) {
+        return res.status(400).json({
+          message: "institutionId is required for super admin",
+        });
+      }
+      institutionId = targetInstitutionId;
+    } else if (requesterRoleArray.includes("admin")) {
+      institutionId = adminInstitutionId;
+    } else {
+      return res.status(403).json({
+        message: "Admin access required",
+      });
+    }
+
+    if (!institutionId) {
+      return res.status(400).json({
+        message: "institutionId could not be resolved",
+      });
+    }
+
+    // --- Check existing onboarding link ---
     const existingInvite = await InviteToken.findOne({
       institutionId,
       type: "public_onboarding",
@@ -890,14 +919,16 @@ export const generatePublicOnboardingLink = async (req, res) => {
       });
     }
 
+    // --- Generate token ---
     const token = crypto.randomBytes(32).toString("hex");
 
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
+    // --- Create invite ---
     await InviteToken.create({
       token,
       institutionId,
-      role: targetRole,
+      role: targetRole, // ✅ now array
       type: "public_onboarding",
       expiresAt,
       createdBy: userId,
@@ -909,8 +940,10 @@ export const generatePublicOnboardingLink = async (req, res) => {
       onboardingLink: `${process.env.FRONTEND_URL}/onboard?token=${token}`,
       expiresAt,
     });
+
   } catch (err) {
     console.error("Public onboarding error:", err);
+
     return res.status(500).json({
       message: "Failed to generate onboarding link",
       error: err.message,
