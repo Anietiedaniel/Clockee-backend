@@ -410,16 +410,28 @@ export const updateUserApproval = async (req, res) => {
 
 export const getAllUsers = async (req, res) => {
   try {
-    const { role: requesterRole, institutionId: adminInstitutionId } = req.user;
+    const { role: requesterRoles, institutionId: adminInstitutionId } = req.user;
     const { id: targetInstitutionId, role: roleFilter } = req.query;
 
-    /* ================= RESOLVE INSTITUTION ================= */
-    const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId || undefined
-        : adminInstitutionId;
+    // --- Normalize requester roles ---
+    const requesterRoleArray = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
 
-    if (!institutionId && requesterRole !== "super_admin") {
+    /* ================= RESOLVE INSTITUTION ================= */
+    let institutionId;
+
+    if (requesterRoleArray.includes("super_admin")) {
+      institutionId = targetInstitutionId || undefined;
+    } else if (requesterRoleArray.includes("admin")) {
+      institutionId = adminInstitutionId;
+    } else {
+      return res.status(403).json({
+        message: "Admin access required",
+      });
+    }
+
+    if (!institutionId && !requesterRoleArray.includes("super_admin")) {
       return res.status(400).json({
         message: "Institution ID is required",
       });
@@ -428,16 +440,23 @@ export const getAllUsers = async (req, res) => {
     /* ================= BUILD FILTER ================= */
     const filter = {
       ...(institutionId && { institutionId }),
-      role: { $nin: ["pending", "rejected"] },
+
+      // EXCLUDE pending and rejected users
+      role: { $nin: ["pending", "rejected"] }, // works with arrays
     };
 
+    // --- Role filter (must use $in) ---
     if (roleFilter) {
-      if (!["staff", "student", "admin"].includes(roleFilter)) {
+      const allowedRoles = ["staff", "student", "admin"];
+
+      if (!allowedRoles.includes(roleFilter)) {
         return res.status(400).json({
           message: "Invalid role filter",
         });
       }
-      filter.role = roleFilter;
+
+      filter.role = { $in: [roleFilter] }; 
+      // matches inside array
     }
 
     /* ================= QUERY ================= */
@@ -453,8 +472,10 @@ export const getAllUsers = async (req, res) => {
       count: users.length,
       data: users,
     });
+
   } catch (err) {
     console.error("Error fetching users:", err);
+
     return res.status(500).json({
       success: false,
       message: "Server error",
