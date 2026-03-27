@@ -470,17 +470,3 @@ export const adminOnboardStatus = (req, res) => {
   });
 };
 
-
-// revokeRole
-// getInstitutionDetails – Fetch single institution info.
-// updateBranch
-// getBranchList
-// getUserActivityLogs
-// getBranchAttendanceStats – Branch-wise detailed attendance metrics for analytics.
-
-// getUserShiftInfo – Return assigned shifts and schedules for a user.
-
-// getUserList – Fetch all users in an institution, with filters (role, active status, etc.).
-
-// getUserDetails – Fetch detailed info for a single user.
-// // get a specific user

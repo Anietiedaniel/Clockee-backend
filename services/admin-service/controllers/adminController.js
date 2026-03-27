@@ -719,6 +719,111 @@ export const createInvite = async (req, res) => {
   }
 };
 
+export const registerWithTokenInvite = async (req, res) => {
+  try {
+    const { token, name, email, password, studentOrStaffId } = req.body;
+
+    // --- Validate required fields ---
+    if (!token || !name || !password) {
+      return res.status(400).json({
+        message: "Token, name and password are required",
+      });
+    }
+
+    // --- Find invite ---
+    const invite = await InviteToken.findOne({
+      token,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!invite) {
+      return res.status(400).json({
+        message: "Invalid or expired invite link",
+      });
+    }
+
+    // --- Determine email (Direct vs Public invite) ---
+    let finalEmail;
+
+    if (invite.email) {
+      // Direct invite → enforce email
+      finalEmail = invite.email;
+
+      if (email && email !== invite.email) {
+        return res.status(400).json({
+          message: "This invite is restricted to a specific email",
+        });
+      }
+    } else {
+      // Public invite → email required from user
+      if (!email) {
+        return res.status(400).json({
+          message: "Email is required for public registration",
+        });
+      }
+
+      finalEmail = email;
+    }
+
+    finalEmail = finalEmail.toLowerCase().trim();
+
+    // --- Prevent duplicate email ---
+    const existingUser = await User.findOne({ email: finalEmail });
+    if (existingUser) {
+      return res.status(409).json({
+        message: "User already exists",
+      });
+    }
+
+    // --- Prevent duplicate staff/student ID ---
+    if (studentOrStaffId) {
+      const existingId = await User.findOne({ studentOrStaffId });
+      if (existingId) {
+        return res.status(409).json({
+          message: "Student/Staff ID already exists",
+        });
+      }
+    }
+
+    // --- Hash password ---
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // --- Create user with PENDING role ---
+    const user = await User.create({
+      name: name.trim(),
+      email: finalEmail,
+      passwordHash,
+      institutionId: invite.institutionId,
+      role: ["pending"], // ALWAYS pending
+      createdBy: invite.createdBy,
+      creatorName: invite.creatorName,
+      departmentOrUnit: invite.departmentOrUnit,
+      studentOrStaffId,
+      isActive: false, // optional until approved
+    });
+
+    // --- Prevent reuse of invite ---
+    await InviteToken.deleteOne({ _id: invite._id });
+
+    // --- Clean response ---
+    const userResponse = user.toObject();
+    delete userResponse.passwordHash;
+
+    return res.status(201).json({
+      message: "Registration successful. Awaiting admin approval.",
+      user: userResponse,
+    });
+
+  } catch (err) {
+    console.error("Register with invite error:", err);
+
+    return res.status(500).json({
+      message: "Registration failed",
+      error: err.message,
+    });
+  }
+};
+
 
 export const bulkInvite = async (req, res) => {
   const {
@@ -859,7 +964,7 @@ export const generatePublicOnboardingLink = async (req, res) => {
     } = req.user;
 
     const { institutionId: targetInstitutionId } = req.query;
-    let { targetRole } = req.body; // now will be array
+    let { targetRole } = req.body; 
 
     // --- Normalize requester roles ---
     const requesterRoleArray = Array.isArray(requesterRoles)

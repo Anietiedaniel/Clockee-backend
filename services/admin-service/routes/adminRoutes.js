@@ -2,7 +2,7 @@ import express from "express";
 import { protect } from "@clockee/shared";
 import { authorizeAdmin } from "../middleware/authorizeAdmin.js";
 import { generateQrInvite } from "../controllers/inviteController.js";
-import { getPendingUsers, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess,
+import { getPendingUsers, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess,
   reactivateUser, rejectUser, generatePublicOnboardingLink, 
   promoteToAdmin, demoteAdmin} from "../controllers/adminController.js";
 
@@ -24,6 +24,9 @@ router.get("/institution/users", protect, authorizeAdmin, getAllUsers);
 router.post("/register/public-link",protect, authorizeAdmin, generatePublicOnboardingLink)
 
 router.post("/invite", protect, authorizeAdmin, createInvite);
+
+router.post("/register/token-link",  registerWithTokenInvite);
+
 
 router.get("/attendance/status", protect);
 
