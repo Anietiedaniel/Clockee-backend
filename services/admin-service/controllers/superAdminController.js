@@ -185,14 +185,28 @@ export const superCreateAdmin = async (req, res) => {
   try {
     const {
       role: requesterRoles,
-      institutionId: requesterInstitutionId,
       userId: createdBy,
     } = req.user;
 
     const { id: targetInstitutionId } = req.params;
 
-    // Validate ObjectId
-    if (!targetInstitutionId || !mongoose.Types.ObjectId.isValid(targetInstitutionId)) {
+    // --- Normalize requester roles ---
+    const requesterRoleArray = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
+
+    // --- Authorization: ONLY super_admin ---
+    if (!requesterRoleArray.includes("super_admin")) {
+      return res.status(403).json({
+        message: "Only super admin can create admin users",
+      });
+    }
+
+    // --- Validate ObjectId ---
+    if (
+      !targetInstitutionId ||
+      !mongoose.Types.ObjectId.isValid(targetInstitutionId)
+    ) {
       return res.status(400).json({
         message: "Invalid or missing Institution ID",
       });
@@ -208,69 +222,67 @@ export const superCreateAdmin = async (req, res) => {
       phone,
     } = req.body;
 
-    // Required fields
+    // --- Required fields ---
     if (!name || !email || !password) {
       return res.status(400).json({
         message: "Name, email and password are required",
       });
     }
 
-    // Normalize inputs
+    // --- Normalize inputs ---
     name = name.trim();
     email = email.toLowerCase().trim();
     phone = phone?.trim();
     studentOrStaffId = studentOrStaffId?.trim();
 
-    // Normalize role to array
+    // --- Ensure role is array ---
     if (!Array.isArray(role)) {
       role = [role];
     }
 
-    // Allowed roles
-    const allowedRoles = ["super_admin", "admin", "staff", "student", "pending", "rejected"];
+    // --- Allowed roles ---
+    const allowedRoles = [
+      "super_admin",
+      "admin",
+      "staff",
+      "student",
+      "pending",
+      "rejected",
+    ];
 
-    // Validate roles
-    const invalidRoles = role.filter(r => !allowedRoles.includes(r));
+    const invalidRoles = role.filter((r) => !allowedRoles.includes(r));
     if (invalidRoles.length > 0) {
       return res.status(400).json({
         message: `Invalid roles: ${invalidRoles.join(", ")}`,
       });
     }
 
-    // Ensure requester roles is array
-    const requesterRoleArray = Array.isArray(requesterRoles)
-      ? requesterRoles
-      : [requesterRoles];
-
-    // Authorization check (ONLY super_admin can create admin)
-    if (!requesterRoleArray.includes("super_admin")) {
-      return res.status(403).json({
-        message: "Only super admin can create admin users",
-      });
-    }
-
-    // Strict admin-only creation
+    // --- Strict admin-only creation ---
     if (!(role.length === 1 && role[0] === "admin")) {
       return res.status(405).json({
         message: "Only admin role allowed",
       });
     }
 
-    // Prevent duplicate email
-    if (await User.findOne({ email })) {
+    // --- Prevent duplicate email ---
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
       return res.status(409).json({
         message: "Email already exists",
       });
     }
 
-    // Prevent duplicate studentOrStaffId
-    if (studentOrStaffId && await User.findOne({ studentOrStaffId })) {
-      return res.status(409).json({
-        message: "Staff/Student ID already exists",
-      });
+    // --- Prevent duplicate student/staff ID ---
+    if (studentOrStaffId) {
+      const existingId = await User.findOne({ studentOrStaffId });
+      if (existingId) {
+        return res.status(409).json({
+          message: "Staff/Student ID already exists",
+        });
+      }
     }
 
-    // Fetch institution
+    // --- Fetch institution ---
     const institution = await Institution.findById(targetInstitutionId);
     if (!institution) {
       return res.status(404).json({
@@ -278,27 +290,17 @@ export const superCreateAdmin = async (req, res) => {
       });
     }
 
-    // Ensure same institution (security)
-    if (
-      requesterInstitutionId &&
-      requesterInstitutionId.toString() !== targetInstitutionId
-    ) {
-      return res.status(403).json({
-        message: "You can only create admins within your institution",
-      });
-    }
-
-    // Hash password
+    // --- Hash password ---
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Get creator name safely
+    // --- Get creator name ---
     const creator = await User.findById(createdBy).select("name");
 
-    // Create user
+    // --- Create admin user ---
     const user = await User.create({
       name,
       email,
-      role,
+      role, // ["admin"]
       institutionId: targetInstitutionId,
       institutionName: institution.name,
       institutionType: institution.type,
@@ -307,15 +309,15 @@ export const superCreateAdmin = async (req, res) => {
       passwordHash,
       isActive: true,
       createdBy,
-      creatorName: creator?.name,
+      creatorName: creator?.name || "System",
       phone,
     });
 
-    // Remove sensitive data before sending
+    // --- Remove sensitive data ---
     const userResponse = user.toObject();
     delete userResponse.passwordHash;
 
-    res.status(201).json({
+    return res.status(201).json({
       message: "Admin created successfully",
       user: userResponse,
     });
@@ -323,9 +325,12 @@ export const superCreateAdmin = async (req, res) => {
   } catch (err) {
     console.error("Admin create user error:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to create user",
-      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+      error:
+        process.env.NODE_ENV === "development"
+          ? err.message
+          : undefined,
     });
   }
 };
