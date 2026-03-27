@@ -427,6 +427,24 @@ export const getAllUsersPlatform = async (req, res) => {
   }
 };
 
+export const getAllAdminsPlatform = async (req, res) => {
+  try {
+    const admins = await User.find({
+      role: { $in: ["admin"] } // matches ["admin"] OR ["admin","staff"]
+    })
+      .select("name email role institutionId isActive createdAt")
+      .populate("institutionId", "name");
+
+    res.status(200).json({
+      total: admins.length,
+      admins,
+    });
+  } catch (err) {
+    console.error("Get admins error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 // admin and super admin can do this
 export const updateUserRole = async (req, res) => {
   try {

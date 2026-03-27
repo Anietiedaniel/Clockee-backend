@@ -8,7 +8,7 @@ import {
   toggleInstitutionStatus,
   assignInstitutionAdmin,
   getAllUsersPlatform, updateUserRole,adminOnboardStatus,
-  superCreateAdmin, createInstitutionWithOwner
+  superCreateAdmin, createInstitutionWithOwner, getAllAdminsPlatform,
 } from "../controllers/superAdminController.js";
 
 const router = express.Router();
@@ -31,7 +31,8 @@ router.post("/create/:id/admin", superCreateAdmin);
 router.get("/institutions", getAllInstitutions);
 router.patch("/institutions/:id/status", toggleInstitutionStatus);
 router.patch("/institutions/:id/admin", assignInstitutionAdmin);
-router.get("/users",  getAllUsersPlatform);
+router.get("/users",protect,authorizeSuperAdmin,  getAllUsersPlatform);
+router.get("/admins",protect,authorizeSuperAdmin, getAllAdminsPlatform)
 router.patch(
   "/users/:id/role",
   updateUserRole
