@@ -1,64 +1,6 @@
 import QRCode from "qrcode";
 import { Institution,  Branch, User} from "@clockee/shared";
 
-
-
-
-export const updateBranchLocation = async (req, res) => {
-  try {
-    const { branchId } = req.params;
-    const { lat, lng, radius } = req.body;
-    const { institutionId } = req.user;
-
-    if (!lat || !lng) {
-      return res.status(400).json({
-        success: false,
-        message: "Latitude and longitude are required",
-      });
-    }
-
-    const branch = await Branch.findOne({
-      _id: branchId,
-      institutionId,
-    });
-
-    if (!branch) {
-      return res.status(404).json({
-        success: false,
-        message: "Branch not found",
-      });
-    }
-
-    branch.location = {
-      type: "Point",
-      coordinates: [lng, lat],
-    };
-
-    if (radius) {
-      branch.radiusMeters = radius;
-    }
-
-    await branch.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Branch location updated successfully",
-      data: branch.location,
-    });
-
-  } catch (error) {
-    console.error("Update branch location error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update branch location",
-    });
-  }
-};
-
-
-
-
-
 // both admin and supper admin can do it
 export const getInstitutionProfile = async (req, res) => {
   try {

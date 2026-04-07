@@ -45,7 +45,6 @@ router.get(
 
 );
 
-router.patch("/institution/remote-policy", protect, authorizeAdmin, updateRemotePolicy);
 
 
 export default router;
