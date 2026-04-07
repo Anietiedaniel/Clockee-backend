@@ -1,5 +1,147 @@
 import QRCode from "qrcode";
-import { Institution,  Branch, User } from "@clockee/shared";
+import { Institution,  Branch, User, InstitutionSetting } from "@clockee/shared";
+
+
+export const updateInstitutionSettings = async (req, res) => {
+  try {
+    const { institutionId } = req.user;
+
+    const allowedUpdates = [
+      "workingDays",
+      "gracePeriodMinutes",
+      "clockingWindow",
+      "gpsRadiusMeters",
+      "enforceGeofence",
+      "qrRefreshSeconds",
+      "allowOfflineClocking",
+      "allowRemoteClocking",
+      "timezone",
+      "notifications",
+      "hasDepartments",
+      "enforceStaffId",
+    ];
+
+    const updates = {};
+
+    Object.keys(req.body).forEach((key) => {
+      if (allowedUpdates.includes(key)) {
+        updates[key] = req.body[key];
+      }
+    });
+
+    const updated = await InstitutionSetting.findOneAndUpdate(
+      { institutionId },
+      updates,
+      { new: true, upsert: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Institution settings updated successfully",
+      data: updated,
+    });
+
+  } catch (error) {
+    console.error("Update settings error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update institution settings",
+    });
+  }
+};
+
+export const updateBranchLocation = async (req, res) => {
+  try {
+    const { branchId } = req.params;
+    const { lat, lng, radius } = req.body;
+    const { institutionId } = req.user;
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude and longitude are required",
+      });
+    }
+
+    const branch = await Branch.findOne({
+      _id: branchId,
+      institutionId,
+    });
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found",
+      });
+    }
+
+    branch.location = {
+      type: "Point",
+      coordinates: [lng, lat],
+    };
+
+    if (radius) {
+      branch.radiusMeters = radius;
+    }
+
+    await branch.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Branch location updated successfully",
+      data: branch.location,
+    });
+
+  } catch (error) {
+    console.error("Update branch location error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update branch location",
+    });
+  }
+};
+
+export const updateOfficeLocation = async (req, res) => {
+  try {
+    const { lat, lng, radius } = req.body;
+    const { institutionId, userId } = req.user;
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude and longitude are required",
+      });
+    }
+
+    const updated = await InstitutionSetting.findOneAndUpdate(
+      { institutionId },
+      {
+        officeLocation: {
+          type: "Point",
+          coordinates: [lng, lat], // always lng first
+        },
+        ...(radius && { gpsRadiusMeters: radius }),
+        createdBy: userId,
+      },
+      { new: true, upsert: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Office location updated successfully",
+      data: updated.officeLocation,
+    });
+
+  } catch (error) {
+    console.error("Update office location error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update office location",
+    });
+  }
+};
+
+
 
 // both admin and supper admin can do it
 export const getInstitutionProfile = async (req, res) => {
@@ -174,22 +316,55 @@ export const updateRemotePolicy = async (req, res) => {
       institutionId: adminInstitutionId,
     } = req.user;
 
-    const {
-      institutionId: targetInstitutionId,
-      allowRemoteClocking,
-    } = req.body;
+    const { institutionId: paramInstitutionId } = req.params;
+    const { allowRemoteClocking } = req.body;
 
-    // Decide which institution can be updated
-    const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId
-        : adminInstitutionId;
+    /* ================= VALIDATION ================= */
+
+    if (typeof allowRemoteClocking !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "allowRemoteClocking must be a boolean",
+      });
+    }
+
+    /* ================= MULTI-TENANT SECURITY ================= */
+
+    let institutionId;
+
+    if (requesterRole === "super_admin") {
+      // Super admin must provide institutionId in params
+      if (!paramInstitutionId) {
+        return res.status(400).json({
+          success: false,
+          message: "Institution ID param is required",
+        });
+      }
+
+      institutionId = paramInstitutionId;
+    } else {
+      // Institution admin cannot update another institution
+      institutionId = adminInstitutionId;
+
+      if (
+        paramInstitutionId &&
+        paramInstitutionId !== String(adminInstitutionId)
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to update this institution",
+        });
+      }
+    }
 
     if (!institutionId) {
       return res.status(400).json({
-        message: "Institution ID is required",
+        success: false,
+        message: "Institution ID could not be resolved",
       });
     }
+
+    /* ================= UPDATE SETTINGS ================= */
 
     const setting = await InstitutionSetting.findOneAndUpdate(
       { institutionId },
@@ -197,12 +372,22 @@ export const updateRemotePolicy = async (req, res) => {
       { new: true, upsert: true }
     );
 
-    return res.json({
-      message: "Remote policy updated successfully",
-      setting,
+    return res.status(200).json({
+      success: true,
+      message: `Remote clocking ${
+        allowRemoteClocking ? "enabled" : "disabled"
+      } successfully`,
+      data: {
+        institutionId,
+        allowRemoteClocking: setting.allowRemoteClocking,
+      },
     });
+
   } catch (err) {
+    console.error("Update remote policy error:", err);
+
     return res.status(500).json({
+      success: false,
       message: "Failed to update remote policy",
     });
   }

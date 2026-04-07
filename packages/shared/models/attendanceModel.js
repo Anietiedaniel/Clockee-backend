@@ -1,9 +1,12 @@
 import mongoose from "../db/mongoose.js";
 
-const gpsSchema = new mongoose.Schema({
-  lat: { type: Number, required: true },
-  lng: { type: Number, required: true },
-});
+const gpsSchema = new mongoose.Schema(
+  {
+    lat: Number,
+    lng: Number,
+  },
+  { _id: false } // prevents extra _id for subdocument
+);
 
 const attendanceLogSchema = new mongoose.Schema(
   {
@@ -19,15 +22,18 @@ const attendanceLogSchema = new mongoose.Schema(
       required: true,
     },
 
+    // OPTIONAL (supports remote companies)
     branchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
-      required: true,
+      default: null,
     },
 
+    // OPTIONAL (policy decides if required)
     shiftId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Shift",
+      default: null,
     },
 
     // "clock-in" or "clock-out"
@@ -44,16 +50,23 @@ const attendanceLogSchema = new mongoose.Schema(
       required: true,
     },
 
-    // GPS coordinates
+    // OPTIONAL (policy decides)
     gps: {
       type: gpsSchema,
-      required: true,
+      default: null,
     },
 
-    // User action time
+    // User action time (source of truth)
     timestamp: {
       type: Date,
       required: true,
+    },
+
+    // Normalized date (for queries & indexing)
+    date: {
+      type: String,
+      required: true,
+      index: true,
     },
 
     // Server receive time
@@ -62,26 +75,27 @@ const attendanceLogSchema = new mongoose.Schema(
       default: Date.now,
     },
 
-    // Mode-specific fields
+    /* ================= MODE-SPECIFIC FIELDS ================= */
+
     qrCode: { type: String },
     qrType: {
       type: String,
       enum: ["static", "dynamic"],
     },
-    qrExpiresAt: { type: Date }, // only for dynamic QR
+    qrExpiresAt: { type: Date },
 
     totp: { type: String },
     token: { type: String },
     backupCode: { type: String },
 
-    // Sync status
+    /* ================= SYSTEM STATUS ================= */
+
     syncStatus: {
       type: String,
       enum: ["online", "offline_pending", "synced", "rejected_on_sync"],
       default: "online",
     },
 
-    // Validation result
     validationResult: {
       type: String,
       enum: [
@@ -95,14 +109,16 @@ const attendanceLogSchema = new mongoose.Schema(
       default: "accepted",
     },
 
-    // Attendance summary
+    /* ================= ATTENDANCE STATUS ================= */
+
     status: {
       type: String,
-      enum: ["on-time", "late", "absent"],
-      default: "on-time",
+      enum: ["on-time", "late", "absent", "present"],
+      default: "present", // 🔥 FIXED
     },
 
-    // Admin override
+    /* ================= ADMIN CONTROL ================= */
+
     adminOverrideBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -110,22 +126,50 @@ const attendanceLogSchema = new mongoose.Schema(
 
     reason: { type: String },
 
+    /* ================= META ================= */
+
     ipAddress: String,
     deviceInfo: String,
 
-    // Soft delete
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
 
-// Indexes
+
+// ================= INDEXES =================
+
+// Fast user history lookup
 attendanceLogSchema.index({ userId: 1, timestamp: -1 });
+
+// Branch-based queries (optional branch)
 attendanceLogSchema.index({ branchId: 1, timestamp: -1 });
+
+// Institution filtering
 attendanceLogSchema.index({ institutionId: 1 });
+
+// Mode filtering
 attendanceLogSchema.index({ mode: 1 });
+
+// QR type filtering
 attendanceLogSchema.index({ qrType: 1 });
+
+// Sync tracking
 attendanceLogSchema.index({ syncStatus: 1 });
+
+// Validation tracking
 attendanceLogSchema.index({ validationResult: 1 });
+
+// Soft delete filtering
+attendanceLogSchema.index({ isActive: 1 });
+
+// 🔥 IMPORTANT: daily queries
+attendanceLogSchema.index({ userId: 1, date: 1 });
+
+// 🔥 CRITICAL: prevent duplicate clock-in/out
+attendanceLogSchema.index(
+  { userId: 1, date: 1, actionType: 1 },
+  { unique: true }
+);
 
 export default mongoose.model("AttendanceLog", attendanceLogSchema);

@@ -1,17 +1,11 @@
 import mongoose from "../db/mongoose.js";
-
-const gpsSchema = new mongoose.Schema({
-  lat: { type: Number, required: true },
-  lng: { type: Number, required: true },
-  radius: { type: Number, default: 50 }, // in meters
-});
-
 const branchSchema = new mongoose.Schema(
   {
     institutionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Institution",
       required: true,
+      index: true,
     },
 
     name: {
@@ -25,36 +19,67 @@ const branchSchema = new mongoose.Schema(
       trim: true,
     },
 
-    gps: {
-      type: gpsSchema,
-      required: true,
+    /* ================= GEO LOCATION ================= */
+
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number], // [lng, lat]
+        required: true,
+      },
     },
 
-    // Secret key used for generating dynamic QR or TOTP tokens
+    radiusMeters: {
+      type: Number,
+      default: 50,
+      min: 1,
+    },
+
+    /* ================= SECURITY ================= */
+
     qrSecret: {
       type: String,
       required: true,
+      select: false, // security
     },
 
-    // shift link (branch default)
     defaultShiftId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Shift",
     },
 
-    // Metadata
-    totalUsers: { type: Number, default: 0 },
-    totalAttendanceLogs: { type: Number, default: 0 },
+    /* ================= METRICS ================= */
 
-    // Active status
-    isActive: { type: Boolean, default: true },
+    totalUsers: {
+      type: Number,
+      default: 0,
+    },
+
+    totalAttendanceLogs: {
+      type: Number,
+      default: 0,
+    },
+
+    /* ================= STATUS ================= */
+
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
   },
   { timestamps: true }
 );
 
-// Indexes for optimization
+/* ================= INDEXES ================= */
+
 branchSchema.index({ institutionId: 1 });
 branchSchema.index({ name: 1 });
-branchSchema.index({ "gps.lat": 1, "gps.lng": 1 });
+
+// Geo index
+branchSchema.index({ location: "2dsphere" });
 
 export default mongoose.model("Branch", branchSchema);

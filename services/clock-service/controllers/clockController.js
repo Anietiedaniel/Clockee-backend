@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { Branch,AttendanceLog,Shift, User, InstitutionSetting  } from "@clockee/shared";
 import {
   validateBranch,
@@ -9,77 +10,189 @@ import {
 } from "../utils/clock.helpers.js";
 
 
+
 export const clockIn = async (req, res) => {
+  const session = await mongoose.startSession();
+
   try {
     const { branchId, gps, mode, qrCode, totp, token, backupCode } = req.body;
     const { userId, institutionId } = req.user;
 
+    const now = new Date();
+
+    // ✅ safer date (local)
+    const date = now.toLocaleDateString("en-CA"); // YYYY-MM-DD
+
+    /* ================= MODE VALIDATION ================= */
+
+    const allowedModes = ["qr", "totp", "silent", "backup_code"];
+
+    if (!allowedModes.includes(mode)) {
+      throw { status: 400, message: "Invalid clock-in mode" };
+    }
+
+    if (mode === "qr" && !qrCode)
+      throw { status: 400, message: "QR code is required" };
+
+    if (mode === "totp" && !totp)
+      throw { status: 400, message: "TOTP is required" };
+
+    if (mode === "silent" && !token)
+      throw { status: 400, message: "Token is required" };
+
+    if (mode === "backup_code" && !backupCode)
+      throw { status: 400, message: "Backup code is required" };
+
     /* ================= POLICY ================= */
+
     const policy = await validateInstitutionPolicy({
       institutionId,
-      branchId,
+      branchId: branchId || null,
       mode,
     });
 
-    /* ================= BRANCH ================= */
-    const branch = await validateBranch({
-      branchId,
-      institutionId,
-    });
+    if (!policy) {
+      throw { status: 400, message: "No policy configured" };
+    }
 
-    /* ================= DUPLICATE CHECK ================= */
-    await checkDuplicateClockIn(userId, branchId);
+    /* ================= BRANCH (OPTIONAL) ================= */
 
-    /* ================= SHIFT & STATUS ================= */
-    const { shift, status } = await detectShiftAndStatus({
-      userId,
-      branch,
-      policy,
-    });
+    let branch = null;
 
-    /* ================= GPS / GEOFENCE ================= */
-    const validationResult = await checkGeofence({
-      gps,
-      branch,
-      policy,
-      strict: true,
-    });
-
-    /* ================= CREATE ATTENDANCE ================= */
-    const attendance = await AttendanceLog.create({
-      userId,
-      institutionId,
-      branchId: branch?._id || null,
-      shiftId: shift?._id || null,
-      actionType: "clock-in",
-      mode: mode || "silent",
-      gps: gps || null,
-      timestamp: new Date(),
-      validationResult,
-      status,
-      syncStatus: "online",
-
-      ...(mode === "qr" && { qrCode }),
-      ...(mode === "totp" && { totp }),
-      ...(mode === "silent" && { token }),
-      ...(mode === "backup_code" && { backupCode }),
-    });
-
-    /* ================= METRICS ================= */
-    if (branch?._id) {
-      await Branch.findByIdAndUpdate(branch._id, {
-        $inc: { totalAttendanceLogs: 1 },
+    if (branchId) {
+      branch = await validateBranch({
+        branchId,
+        institutionId,
       });
     }
 
+    /* ================= DUPLICATE CHECK ================= */
+
+    await checkDuplicateClockIn({
+      userId,
+      date,
+      actionType: "clock-in",
+    });
+
+    /* ================= SHIFT (OPTIONAL) ================= */
+
+    let shift = null;
+    let status = "present"; // default for non-shift systems
+
+    if (policy.requiresShift) {
+      const result = await detectShiftAndStatus({
+        userId,
+        branch,
+        policy,
+      });
+
+      shift = result.shift;
+      status = result.status;
+
+      if (!shift) {
+        throw { status: 400, message: "No shift assigned" };
+      }
+    }
+
+    /* ================= GEOFENCE (OPTIONAL) ================= */
+
+    let validationResult = "accepted";
+
+    if (policy.requiresGeofence) {
+      if (!gps) {
+        throw { status: 400, message: "GPS is required by policy" };
+      }
+
+      const geo = await checkGeofence({
+        gps,
+        branch,
+        policy,
+        strict: true,
+      });
+
+      validationResult = geo;
+    }
+
+    /* ================= START TRANSACTION ================= */
+
+    session.startTransaction();
+
+    /* ================= BUILD PAYLOAD ================= */
+
+    const attendancePayload = {
+      userId,
+      institutionId,
+      branchId: branch?._id || null,
+      shiftId: policy.requiresShift ? shift._id : null,
+
+      actionType: "clock-in",
+      mode,
+
+      gps: gps || null,
+
+      timestamp: now,
+      date,
+
+      validationResult,
+      status,
+
+      syncStatus: "online",
+    };
+
+    // attach mode-specific fields safely
+    if (mode === "qr") attendancePayload.qrCode = qrCode;
+    if (mode === "totp") attendancePayload.totp = totp;
+    if (mode === "silent") attendancePayload.token = token;
+    if (mode === "backup_code") attendancePayload.backupCode = backupCode;
+
+    /* ================= CREATE ATTENDANCE ================= */
+
+    const [attendance] = await AttendanceLog.create(
+      [attendancePayload],
+      { session }
+    );
+
+    /* ================= OPTIONAL METRICS ================= */
+
+    if (branch) {
+      await Branch.findByIdAndUpdate(
+        branch._id,
+        { $inc: { totalAttendanceLogs: 1 } },
+        { session }
+      );
+    }
+
+    /* ================= COMMIT ================= */
+
+    await session.commitTransaction();
+    session.endSession();
+
     /* ================= RESPONSE ================= */
+
     return res.status(201).json({
       success: true,
       message: `Clock-in successful (${status})`,
       data: attendance,
     });
+
   } catch (err) {
-    console.error("Clock-in error:", err);
+    await session.abortTransaction();
+    session.endSession();
+
+    // 🔥 handle duplicate key error cleanly
+    if (err.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already clocked in today",
+      });
+    }
+
+    console.error("Clock-in error:", {
+      message: err.message,
+      userId: req.user?.userId,
+      branchId: req.body?.branchId,
+      mode: req.body?.mode,
+    });
 
     return res.status(err.status || 500).json({
       success: false,
