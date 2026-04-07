@@ -1,214 +1,354 @@
 import {InstitutionSetting} from "@clockee/shared";
-import {Institution} from "@clockee/shared";
-
-
-export const createInstitutionSettings = async (req, res) => {
-  try {
-    const {
-      role:requesterRole,
-      institutionId: adminInstitutionId,
-      userId: createdBy,
-    } = req.user;
-
-    const{id: targetInstitutionId,} = req.params;
-
-    const {
-      // policy fields
-      workingDays,
-      gracePeriodMinutes,
-      gpsRadiusMeters,
-      qrRefreshSeconds,
-      timezone,
-      allowOfflineClocking,
-      notifications,
-      hasDepartments,
-      enforceStaffId,
-    } = req.body;
-
-    /* ================= ROLE & INSTITUTION RESOLUTION ================= */
-    const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId
-        : adminInstitutionId;
-
-    if (!institutionId) {
-      return res.status(400).json({
-        success: false,
-        message: "Institution ID is required.",
-      });
-    }
-
-    /* ================= INSTITUTION VALIDATION ================= */
-    const institution = await Institution.findById(institutionId);
-    if (!institution) {
-      return res.status(404).json({
-        success: false,
-        message: "Institution not found.",
-      });
-    }
-
-    /* ================= PREVENT DUPLICATES ================= */
-    const existing = await InstitutionSetting.findOne({ institutionId });
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: "Institution settings already exist.",
-      });
-    }
-
-    /* ================= CREATE SETTINGS ================= */
-    const settings = await InstitutionSetting.create({
-      institutionId,
-
-      // attendance policies
-      workingDays,
-      gracePeriodMinutes,
-      gpsRadiusMeters,
-      qrRefreshSeconds,
-      timezone,
-      allowOfflineClocking,
-
-      // feature flags
-      hasDepartments,
-      enforceStaffId,
-
-      // notifications
-      notifications,
-
-      // lifecycle
-      isActive: true,
-
-      createdBy
-    });
-
-    /* ================= RESPONSE ================= */
-    return res.status(201).json({
-      success: true,
-      message: "Institution settings created successfully.",
-      data: settings,
-    });
-  } catch (err) {
-    console.error("Create institution settings error:", err);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create institution settings.",
-    });
-  }
-};
 
 export const getInstitutionSettings = async (req, res) => {
   try {
-    const { role:requesterRole, institutionId:adminInstitutionId } = req.user;
-    const { id:targetInstitutionId } = req.params;
+    const {
+      role: requesterRole,
+      institutionId: adminInstitutionId,
+    } = req.user;
 
-      const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId
-        : adminInstitutionId;
-
-    if (!institutionId) {
-      return res.status(400).json({
-        success: false,
-        message: "Institution ID is required.",
-      });
-    }
-
-   
-
-    /* ================= FETCH SETTINGS ================= */
-    const settings = await InstitutionSetting.findOne({ institutionId });
-
-    if (!settings) {
-      return res.status(404).json({
-        success: false,
-        message: "Institution settings not found.",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: settings,
-    });
-  } catch (err) {
-    console.error("Fetch institution settings error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch institution settings.",
-    });
-  }
-};
-
-
-export const updateInstitutionSettings = async (req, res) => {
-  try {
-    const { role:requesterRole, institutionId: adminInstitutionId } = req.user;
     const { id: targetInstitutionId } = req.params;
 
     /* ================= RESOLVE INSTITUTION ================= */
-    const institutionId =
-      requesterRole === "super_admin" ? targetInstitutionId : adminInstitutionId;
+
+    let institutionId;
+
+    if (requesterRole === "super_admin") {
+      if (!targetInstitutionId) {
+        return res.status(400).json({
+          success: false,
+          message: "Institution ID is required for super admin",
+        });
+      }
+      institutionId = targetInstitutionId;
+    } else {
+      institutionId = adminInstitutionId;
+    }
 
     if (!institutionId) {
       return res.status(400).json({
         success: false,
-        message: "Institution ID is required.",
+        message: "Institution ID could not be resolved",
       });
     }
 
-    /* ================= ALLOWED FIELDS ================= */
-    const allowedUpdates = [
-      "workingDays",
-      "gracePeriodMinutes",
-      "gpsRadiusMeters",
-      "qrRefreshSeconds",
-      "timezone",
-      "allowOfflineClocking",
-      "notifications",
-      "hasDepartments",
-      "enforceStaffId",
-      "isActive",
-    ];
+    /* ================= FETCH SETTINGS ================= */
 
-    const updates = {};
-    for (const key of allowedUpdates) {
-      if (req.body[key] !== undefined) {
-        updates[key] = req.body[key];
-      }
-    }
+    let settings = await InstitutionSetting.findOne({ institutionId });
 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No valid fields provided for update.",
-      });
-    }
-
-    /* ================= UPDATE ================= */
-    const settings = await InstitutionSetting.findOneAndUpdate(
-      { institutionId },
-      { $set: updates },
-      { new: true } 
-    );
+    /* ================= DEFAULT FALLBACK ================= */
 
     if (!settings) {
-      return res.status(404).json({
-        success: false,
-        message: "Institution settings not found.",
-      });
+      settings = {
+        institutionId,
+
+        // attendance defaults
+        workingDays: [],
+        gracePeriodMinutes: 0,
+        gpsRadiusMeters: 100,
+        qrRefreshSeconds: 60,
+        timezone: "UTC",
+
+        // policies
+        enforceGeofence: false,
+        allowOfflineClocking: false,
+        allowRemoteClocking: false,
+
+        // features
+        hasDepartments: false,
+        enforceStaffId: false,
+
+        // notifications
+        notifications: {},
+
+        isActive: true,
+      };
     }
+
+    /* ================= RESPONSE ================= */
 
     return res.status(200).json({
       success: true,
-      message: "Institution settings updated successfully.",
       data: settings,
     });
-  } catch (error) {
-    console.error("Update institution settings error:", error);
+
+  } catch (err) {
+    console.error("Fetch institution settings error:", err);
+
     return res.status(500).json({
       success: false,
-      message: "Failed to update institution settings.",
+      message: "Failed to fetch institution settings",
     });
   }
 };
 
+export const updateInstitutionSetting = async (req, res) => {
+  try {
+    const {
+      role: requesterRole,
+      institutionId: adminInstitutionId,
+      userId,
+    } = req.user;
+
+    const { institutionId: paramInstitutionId } = req.params;
+
+    /* ================= RESOLVE INSTITUTION ================= */
+
+    let institutionId;
+
+    if (requesterRole === "super_admin") {
+      if (!paramInstitutionId) {
+        return res.status(400).json({
+          success: false,
+          message: "Institution ID is required for super admin",
+        });
+      }
+      institutionId = paramInstitutionId;
+    } else {
+      institutionId = adminInstitutionId;
+
+      if (
+        paramInstitutionId &&
+        paramInstitutionId !== String(adminInstitutionId)
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to update this institution",
+        });
+      }
+    }
+
+    /* ================= ALLOWED FIELDS ================= */
+
+    const allowedUpdates = [
+      "workingDays",
+      "gracePeriodMinutes",
+      "clockingWindow",
+      "gpsRadiusMeters",
+      "enforceGeofence",
+      "qrRefreshSeconds",
+      "allowOfflineClocking",
+      "allowRemoteClocking",
+      "timezone",
+      "notifications",
+      "hasDepartments",
+      "enforceStaffId",
+    ];
+
+    const updates = {};
+
+    Object.keys(req.body).forEach((key) => {
+      if (allowedUpdates.includes(key)) {
+        updates[key] = req.body[key];
+      }
+    });
+
+    /* ================= VALIDATION ================= */
+
+    if (
+      updates.gpsRadiusMeters !== undefined &&
+      (typeof updates.gpsRadiusMeters !== "number" ||
+        updates.gpsRadiusMeters <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "gpsRadiusMeters must be a positive number",
+      });
+    }
+
+    if (
+      updates.gracePeriodMinutes !== undefined &&
+      (typeof updates.gracePeriodMinutes !== "number" ||
+        updates.gracePeriodMinutes < 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "gracePeriodMinutes must be a non-negative number",
+      });
+    }
+
+    if (
+      updates.qrRefreshSeconds !== undefined &&
+      (typeof updates.qrRefreshSeconds !== "number" ||
+        updates.qrRefreshSeconds <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "qrRefreshSeconds must be a positive number",
+      });
+    }
+
+    if (
+      updates.allowRemoteClocking !== undefined &&
+      typeof updates.allowRemoteClocking !== "boolean"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "allowRemoteClocking must be a boolean",
+      });
+    }
+
+    if (
+      updates.allowOfflineClocking !== undefined &&
+      typeof updates.allowOfflineClocking !== "boolean"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "allowOfflineClocking must be a boolean",
+      });
+    }
+
+    /* ================= ADD AUDIT INFO ================= */
+
+    updates.lastUpdatedBy = userId;
+    updates.lastUpdatedAt = new Date();
+
+    /* ================= UPDATE ================= */
+
+    const updated = await InstitutionSetting.findOneAndUpdate(
+      { institutionId },
+      updates,
+      { new: true, upsert: true }
+    );
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      message: "Institution settings updated successfully",
+      data: updated,
+    });
+
+  } catch (error) {
+    console.error("Update settings error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update institution settings",
+    });
+  }
+};
+
+
+export const updateOfficeLocation = async (req, res) => {
+  try {
+    const {
+      role: requesterRole,
+      institutionId: adminInstitutionId,
+      userId,
+    } = req.user;
+
+    const { institutionId: paramInstitutionId } = req.params;
+
+    const { lat, lng, radius } = req.body;
+
+    /* ================= RESOLVE INSTITUTION ================= */
+
+    let institutionId;
+
+    if (requesterRole === "super_admin") {
+      if (!paramInstitutionId) {
+        return res.status(400).json({
+          success: false,
+          message: "Institution ID is required for super admin",
+        });
+      }
+      institutionId = paramInstitutionId;
+    } else {
+      institutionId = adminInstitutionId;
+
+      if (
+        paramInstitutionId &&
+        paramInstitutionId !== String(adminInstitutionId)
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to update this institution",
+        });
+      }
+    }
+
+    /* ================= VALIDATION ================= */
+
+    if (lat === undefined || lng === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude and longitude are required",
+      });
+    }
+
+    if (
+      typeof lat !== "number" ||
+      typeof lng !== "number" ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid latitude or longitude values",
+      });
+    }
+
+    if (
+      radius !== undefined &&
+      (typeof radius !== "number" || radius <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Radius must be a positive number",
+      });
+    }
+
+    /* ================= BUILD UPDATE ================= */
+
+    const updates = {
+      officeLocation: {
+        type: "Point",
+        coordinates: [lng, lat], // GeoJSON format
+      },
+      lastUpdatedBy: userId,
+      lastUpdatedAt: new Date(),
+    };
+
+    if (radius !== undefined) {
+      updates.gpsRadiusMeters = radius;
+    }
+
+    /* ================= UPDATE ================= */
+
+    const updated = await InstitutionSetting.findOneAndUpdate(
+      { institutionId },
+      updates,
+      { new: true, upsert: true }
+    );
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      message: "Office location updated successfully",
+      data: {
+        officeLocation: updated.officeLocation,
+        gpsRadiusMeters: updated.gpsRadiusMeters,
+      },
+    });
+
+  } catch (error) {
+    console.error("Update office location error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update office location",
+    });
+  }
+};
+
+
+
+// createInstitution (super admin)
+// updateInstitutionProfile
+// updateInstitutionStatus
+// archiveInstitution
+// getInstitutionDetails

@@ -123,6 +123,16 @@ const institutionSettingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+
+          lastUpdatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+
+      lastUpdatedAt: {
+        type: Date,
+      },
+
   },
   { timestamps: true }
 );

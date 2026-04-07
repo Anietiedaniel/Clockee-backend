@@ -20,8 +20,12 @@ export const clockIn = async (req, res) => {
 
     const now = new Date();
 
-    // ✅ safer date (local)
-    const date = now.toLocaleDateString("en-CA"); // YYYY-MM-DD
+
+    const date = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate()
+    );
 
     /* ================= MODE VALIDATION ================= */
 
@@ -43,6 +47,14 @@ export const clockIn = async (req, res) => {
     if (mode === "backup_code" && !backupCode)
       throw { status: 400, message: "Backup code is required" };
 
+    /* ================= LOAD USER ================= */
+
+    const user = await User.findById(userId).select("clockMode");
+
+    if (!user) {
+      throw { status: 404, message: "User not found" };
+    }
+
     /* ================= POLICY ================= */
 
     const policy = await validateInstitutionPolicy({
@@ -53,6 +65,31 @@ export const clockIn = async (req, res) => {
 
     if (!policy) {
       throw { status: 400, message: "No policy configured" };
+    }
+
+    /* REMOTE ACCESS CONTROL CRITICAL */
+
+    const REMOTE_MODES = ["totp", "silent", "backup_code"];
+    const REMOTE_ALLOWED = ["remote", "hybrid", "field"];
+
+    const isRemoteAttempt = REMOTE_MODES.includes(mode);
+
+    if (isRemoteAttempt) {
+      // Company-level restriction
+      if (!policy.allowRemoteClocking) {
+        throw {
+          status: 403,
+          message: "Remote clocking is disabled for this company",
+        };
+      }
+
+      // User-level restriction
+      if (!REMOTE_ALLOWED.includes(user.clockMode)) {
+        throw {
+          status: 403,
+          message: "You are not allowed to clock in remotely",
+        };
+      }
     }
 
     /* ================= BRANCH (OPTIONAL) ================= */
@@ -77,7 +114,7 @@ export const clockIn = async (req, res) => {
     /* ================= SHIFT (OPTIONAL) ================= */
 
     let shift = null;
-    let status = "present"; // default for non-shift systems
+    let status = "present";
 
     if (policy.requiresShift) {
       const result = await detectShiftAndStatus({
@@ -139,7 +176,7 @@ export const clockIn = async (req, res) => {
       syncStatus: "online",
     };
 
-    // attach mode-specific fields safely
+    // mode-specific fields
     if (mode === "qr") attendancePayload.qrCode = qrCode;
     if (mode === "totp") attendancePayload.totp = totp;
     if (mode === "silent") attendancePayload.token = token;
@@ -179,7 +216,6 @@ export const clockIn = async (req, res) => {
     await session.abortTransaction();
     session.endSession();
 
-    // 🔥 handle duplicate key error cleanly
     if (err.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -200,6 +236,7 @@ export const clockIn = async (req, res) => {
     });
   }
 };
+
 
 
 export const clockOut = async (req, res) => {

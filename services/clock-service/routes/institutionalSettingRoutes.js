@@ -3,17 +3,17 @@ import { protect } from "@clockee/shared";
 import {  isAdmin } from "../middleware/authMiddleware.js";
 import {
   getInstitutionSettings,
-  updateInstitutionSettings, createInstitutionSettings
+  updateInstitutionSetting,  updateOfficeLocation
 } from "../controllers/institutionSettingController.js";
 
 const router = express.Router();
 
-router.post("/institution/:id/settings", protect, isAdmin, createInstitutionSettings)
-
 // View current settings
-router.get("/institution/:id/settings", protect, isAdmin, getInstitutionSettings);
+router.get("/institution/:id/setting", protect, isAdmin, getInstitutionSettings);
 
 // Update or create settings
-router.patch("/institution/:id/settings", protect, isAdmin, updateInstitutionSettings);
+router.patch("/institution/:id/setting", protect, isAdmin, updateInstitutionSetting);
 
+
+router.patch("/institution/:id/address", protect, isAdmin, updateOfficeLocation);
 export default router;
