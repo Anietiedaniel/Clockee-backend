@@ -6,7 +6,7 @@ import { authorizeSuperAdmin } from "../middleware/authorizeSuperAdmin.js";
 import {
   getAllInstitutions,
   toggleInstitutionStatus,
-  assignInstitutionAdmin,
+  assignInstitutionAdmin,getInstitutionOwner,
   getAllUsersPlatform, updateUserRole,adminOnboardStatus,
   superCreateAdmin, createInstitutionWithOwner, getAllAdminsPlatform,
 } from "../controllers/superAdminController.js";
@@ -38,5 +38,8 @@ router.patch(
   updateUserRole
 );
 router.get("/onboard", adminOnboardStatus);
+router.get(
+  "/institution/:id/owner",getInstitutionOwner
+);
 
 export default router;

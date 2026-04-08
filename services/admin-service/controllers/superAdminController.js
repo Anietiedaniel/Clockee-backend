@@ -493,3 +493,54 @@ export const adminOnboardStatus = (req, res) => {
   });
 };
 
+export const getInstitutionOwner = async (req, res) => {
+  try {
+    const { role, institutionId } = req.user;
+    const { id: paramInstitutionId } = req.params;
+
+    // Handle role as array
+    const isSuperAdmin = role?.includes("super_admin");
+
+    let targetInstitutionId;
+
+    if (isSuperAdmin) {
+      if (!paramInstitutionId) {
+        return res.status(400).json({
+          success: false,
+          message: "Institution ID is required",
+        });
+      }
+
+      targetInstitutionId = paramInstitutionId;
+    } else {
+      targetInstitutionId = institutionId;
+    }
+
+    const owner = await User.findOne({
+      institutionId: targetInstitutionId,
+      role: "admin",
+      isActive: true,
+    }).select("-passwordHash -backupCodes");
+
+    if (!owner) {
+      return res.status(404).json({
+        success: false,
+        message: "Institution owner not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: owner,
+    });
+
+  } catch (error) {
+    console.error("Get institution owner error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch institution owner",
+    });
+  }
+};
+
