@@ -3,17 +3,21 @@ import {InstitutionSetting} from "@clockee/shared";
 export const getInstitutionSettings = async (req, res) => {
   try {
     const {
-      role: requesterRole,
+      role: requesterRoles = [],   // now array
       institutionId: adminInstitutionId,
     } = req.user;
 
     const { id: targetInstitutionId } = req.params;
 
+    /* ================= CHECK ROLE ================= */
+
+    const isSuperAdmin = requesterRoles.includes("super_admin");
+
     /* ================= RESOLVE INSTITUTION ================= */
 
     let institutionId;
 
-    if (requesterRole === "super_admin") {
+    if (isSuperAdmin) {
       if (!targetInstitutionId) {
         return res.status(400).json({
           success: false,
