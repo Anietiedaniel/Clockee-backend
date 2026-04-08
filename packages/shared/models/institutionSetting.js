@@ -1,4 +1,5 @@
 import mongoose from "../db/mongoose.js";
+
 const institutionSettingSchema = new mongoose.Schema(
   {
     institutionId: {
@@ -37,7 +38,7 @@ const institutionSettingSchema = new mongoose.Schema(
       },
     },
 
-    /* ================= MAIN OFFICE LOCATION (NEW) ================= */
+    /* ================= MAIN OFFICE LOCATION ================= */
 
     officeLocation: {
       type: {
@@ -47,7 +48,12 @@ const institutionSettingSchema = new mongoose.Schema(
       },
       coordinates: {
         type: [Number], // [lng, lat]
-        default: undefined,
+        validate: {
+          validator: function (value) {
+            return !value || value.length === 2;
+          },
+          message: "Coordinates must be [lng, lat]",
+        },
       },
     },
 
@@ -124,31 +130,46 @@ const institutionSettingSchema = new mongoose.Schema(
       ref: "User",
     },
 
-          lastUpdatedBy: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
+    lastUpdatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
 
-      lastUpdatedAt: {
-        type: Date,
-      },
-
+    lastUpdatedAt: {
+      type: Date,
+    },
   },
   { timestamps: true }
 );
 
+/* ================= GEO INDEX ================= */
 
-
-// Geo index for MongoDB geospatial queries
 institutionSettingSchema.index(
   { officeLocation: "2dsphere" },
   {
     partialFilterExpression: {
-      officeLocation: { $exists: true },
+      "officeLocation.coordinates": { $exists: true },
     },
   }
 );
 
+/* ================= GEO SAFETY VALIDATION ================= */
+
+institutionSettingSchema.pre("validate", function (next) {
+  if (this.officeLocation?.coordinates?.length === 2) {
+    const [lng, lat] = this.officeLocation.coordinates;
+
+    if (lat < -90 || lat > 90) {
+      return next(new Error("Latitude must be between -90 and 90"));
+    }
+
+    if (lng < -180 || lng > 180) {
+      return next(new Error("Longitude must be between -180 and 180"));
+    }
+  }
+
+  next();
+});
 
 export default mongoose.model(
   "InstitutionSetting",

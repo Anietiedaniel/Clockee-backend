@@ -15,5 +15,5 @@ router.get("/:id/setting", protect, isAdmin, getInstitutionSettings);
 router.patch("/:id/setting", protect, isAdmin, updateInstitutionSetting);
 
 
-router.patch("/:id/address", protect, isAdmin, updateOfficeLocation);
+router.patch("/:id/location", protect, isAdmin, updateOfficeLocation);
 export default router;
