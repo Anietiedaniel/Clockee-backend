@@ -65,6 +65,18 @@ const userSchema = new mongoose.Schema(
       default: "onsite",
     },
 
+        remoteAccess: {
+      allowed: {
+        type: Boolean,
+        default: false, // must be explicitly granted
+      },
+      approvedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+      approvedAt: Date,
+    },
+
     // ================= INSTITUTION =================
     institutionId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -90,6 +102,8 @@ const userSchema = new mongoose.Schema(
       // sparse prevents duplicate null errors
       // without sparse, Mongo will allow only ONE null
     },
+   
+
 
     // ================= CREATOR =================
     createdBy: {

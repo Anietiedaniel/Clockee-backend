@@ -11,6 +11,172 @@ import {
 
 
 
+
+export const clockAttendance = async (req, res) => {
+  try {
+    const { actionType, mode, gps } = req.body;
+    const userId = req.user.id;
+
+    /* ===============================
+       1️⃣ BASIC VALIDATION
+    =============================== */
+
+    if (!actionType || !["clock-in", "clock-out"].includes(actionType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid action type",
+      });
+    }
+
+    if (!mode) {
+      return res.status(400).json({
+        success: false,
+        message: "Clocking mode is required",
+      });
+    }
+
+    if (!gps?.lat || !gps?.lng) {
+      return res.status(400).json({
+        success: false,
+        message: "GPS location is required",
+      });
+    }
+
+    /* ===============================
+       2️⃣ FETCH USER + SETTINGS
+    =============================== */
+
+    const user = await User.findById(userId);
+    if (!user || !user.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found or inactive",
+      });
+    }
+
+    const institutionSetting = await InstitutionSetting.findOne({
+      institutionId: user.institutionId,
+      isActive: true,
+    });
+
+    if (!institutionSetting) {
+      return res.status(404).json({
+        success: false,
+        message: "Institution settings not found",
+      });
+    }
+
+    /* ===============================
+       3️⃣ REMOTE VALIDATION LOGIC
+    =============================== */
+
+    const institutionAllowsRemote =
+      institutionSetting.allowRemoteClocking;
+
+    const userAllowsRemote =
+      user.remoteAccess?.allowed === true;
+
+    let validationResult = "accepted";
+
+    if (user.clockMode === "remote") {
+      if (!institutionAllowsRemote || !userAllowsRemote) {
+        validationResult = "remote_not_allowed";
+
+        return res.status(403).json({
+          success: false,
+          message: "Remote clocking not permitted",
+        });
+      }
+    }
+
+    /* ===============================
+       4️⃣ GEOFENCE CHECK (NON-REMOTE)
+    =============================== */
+
+    if (
+      user.clockMode !== "remote" &&
+      institutionSetting.enforceGeofence &&
+      institutionSetting.officeLocation?.coordinates?.length === 2
+    ) {
+      const [officeLng, officeLat] =
+        institutionSetting.officeLocation.coordinates;
+
+      const withinRadius =
+        await InstitutionSetting.findOne({
+          _id: institutionSetting._id,
+          officeLocation: {
+            $geoWithin: {
+              $centerSphere: [
+                [gps.lng, gps.lat],
+                institutionSetting.gpsRadiusMeters / 6378137,
+              ],
+            },
+          },
+        });
+
+      if (!withinRadius) {
+        validationResult = "out_of_zone";
+      }
+    }
+
+    /* ===============================
+       5️⃣ DUPLICATE PREVENTION
+    =============================== */
+
+    const today = new Date().toISOString().split("T")[0];
+
+    const existing = await AttendanceLog.findOne({
+      userId,
+      date: today,
+      actionType,
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: `Already clocked ${actionType} today`,
+      });
+    }
+
+    /* ===============================
+       6️⃣ SAVE ATTENDANCE
+    =============================== */
+
+    const attendance = await AttendanceLog.create({
+      userId,
+      institutionId: user.institutionId,
+      actionType,
+      mode,
+      gps: {
+        lat: gps.lat,
+        lng: gps.lng,
+      },
+      timestamp: new Date(),
+      date: today,
+      validationResult,
+      status:
+        validationResult === "accepted"
+          ? "present"
+          : "absent",
+      ipAddress: req.ip,
+      deviceInfo: req.headers["user-agent"],
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Clock recorded successfully",
+      data: attendance,
+    });
+  } catch (error) {
+    console.error("Clock attendance error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to process attendance",
+    });
+  }
+};
+
 export const clockIn = async (req, res) => {
   const session = await mongoose.startSession();
 
