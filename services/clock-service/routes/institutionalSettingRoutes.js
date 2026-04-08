@@ -9,11 +9,11 @@ import {
 const router = express.Router();
 
 // View current settings
-router.get("/institution/:id/setting", protect, isAdmin, getInstitutionSettings);
+router.get("/:id/setting", protect, isAdmin, getInstitutionSettings);
 
 // Update or create settings
-router.patch("/institution/:id/setting", protect, isAdmin, updateInstitutionSetting);
+router.patch("/:id/setting", protect, isAdmin, updateInstitutionSetting);
 
 
-router.patch("/institution/:id/address", protect, isAdmin, updateOfficeLocation);
+router.patch("/:id/address", protect, isAdmin, updateOfficeLocation);
 export default router;

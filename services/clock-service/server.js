@@ -37,7 +37,7 @@ async function start() {
   });
 
   app.use("/clock", clockRoutes);
-  app.use("/clock", institutionalSettingController);
+  app.use("/institutions", institutionalSettingController);
 
   app.use((err, req, res, next) => {
     console.error("Unhandled error:", err);
