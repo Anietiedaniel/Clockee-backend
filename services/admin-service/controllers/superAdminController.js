@@ -493,12 +493,12 @@ export const adminOnboardStatus = (req, res) => {
   });
 };
 
+
 export const getInstitutionOwner = async (req, res) => {
   try {
     const { role, institutionId } = req.user;
     const { id: paramInstitutionId } = req.params;
 
-    // Handle role as array
     const isSuperAdmin = role?.includes("super_admin");
 
     let targetInstitutionId;
@@ -510,28 +510,36 @@ export const getInstitutionOwner = async (req, res) => {
           message: "Institution ID is required",
         });
       }
-
       targetInstitutionId = paramInstitutionId;
     } else {
       targetInstitutionId = institutionId;
     }
 
-    const owner = await User.findOne({
-      institutionId: targetInstitutionId,
-      role: "admin",
-      isActive: true,
-    }).select("-passwordHash -backupCodes");
+    /* ================= FIND INSTITUTION ================= */
 
-    if (!owner) {
+    const institution = await Institution.findById(targetInstitutionId)
+      .populate({
+        path: "owner",
+        select: "-passwordHash -backupCodes",
+      });
+
+    if (!institution) {
       return res.status(404).json({
         success: false,
-        message: "Institution owner not found",
+        message: "Institution not found",
+      });
+    }
+
+    if (!institution.owner) {
+      return res.status(404).json({
+        success: false,
+        message: "Institution owner not assigned",
       });
     }
 
     return res.status(200).json({
       success: true,
-      data: owner,
+      data: institution.owner,
     });
 
   } catch (error) {
