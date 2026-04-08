@@ -494,60 +494,58 @@ export const adminOnboardStatus = (req, res) => {
 };
 
 
-export const getInstitutionOwner = async (req, res) => {
+
+export const getAllInstitutionOwners = async (req, res) => {
   try {
-    const { role, institutionId } = req.user;
-    const { id: paramInstitutionId } = req.params;
+    const { role } = req.user;
 
     const isSuperAdmin = role?.includes("super_admin");
 
-    let targetInstitutionId;
-
-    if (isSuperAdmin) {
-      if (!paramInstitutionId) {
-        return res.status(400).json({
-          success: false,
-          message: "Institution ID is required",
-        });
-      }
-      targetInstitutionId = paramInstitutionId;
-    } else {
-      targetInstitutionId = institutionId;
+    if (!isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Only super admin can access all institution owners",
+      });
     }
 
-    /* ================= FIND INSTITUTION ================= */
+    /* ================= FETCH INSTITUTIONS WITH OWNERS ================= */
 
-    const institution = await Institution.findById(targetInstitutionId)
+    const institutions = await Institution.find({ isActive: true })
       .populate({
         path: "owner",
         select: "-passwordHash -backupCodes",
-      });
+      })
+      .select("name type email phone country state city owner createdAt");
 
-    if (!institution) {
-      return res.status(404).json({
-        success: false,
-        message: "Institution not found",
-      });
-    }
+    /* ================= FORMAT CLEAN RESPONSE ================= */
 
-    if (!institution.owner) {
-      return res.status(404).json({
-        success: false,
-        message: "Institution owner not assigned",
-      });
-    }
+    const result = institutions.map((inst) => ({
+      institutionId: inst._id,
+      institutionName: inst.name,
+      institutionType: inst.type,
+      institutionEmail: inst.email,
+      institutionPhone: inst.phone,
+      location: {
+        country: inst.country,
+        state: inst.state,
+        city: inst.city,
+      },
+      createdAt: inst.createdAt,
+      owner: inst.owner || null,
+    }));
 
     return res.status(200).json({
       success: true,
-      data: institution.owner,
+      count: result.length,
+      data: result,
     });
 
   } catch (error) {
-    console.error("Get institution owner error:", error);
+    console.error("Get all institution owners error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch institution owner",
+      message: "Failed to fetch institution owners",
     });
   }
 };

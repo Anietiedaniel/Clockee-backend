@@ -39,7 +39,7 @@ router.patch(
 );
 router.get("/onboard", adminOnboardStatus);
 router.get(
-  "/institution/:id/owner",getInstitutionOwner
+  "/institution/owners",getInstitutionOwner
 );
 
 export default router;
