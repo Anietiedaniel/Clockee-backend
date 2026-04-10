@@ -126,7 +126,7 @@ export const updateInstitutionSetting = async (req, res) => {
     /* ================= ACCESS CONTROL ================= */
 
     if (isAdmin && !isSuperAdmin) {
-      if (!adminInstitutionId) {
+      if (!targetInstitutionId) {
         return res.status(403).json({
           success: false,
           message: "Admin institution not found",
