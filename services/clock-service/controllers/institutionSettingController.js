@@ -89,37 +89,54 @@ export const getInstitutionSettings = async (req, res) => {
 export const updateInstitutionSetting = async (req, res) => {
   try {
     const {
-      role: requesterRole,
+      role,
       institutionId: adminInstitutionId,
       userId,
     } = req.user;
 
     const { institutionId: paramInstitutionId } = req.params;
 
+    /* ================= ROLE NORMALIZATION ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+    const isSuperAdmin = roles.includes("super_admin");
+
+    /* ================= VALIDATE PARAM ================= */
+
+    if (!paramInstitutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Institution ID parameter is required",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(paramInstitutionId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid institution ID",
+      });
+    }
+
     /* ================= RESOLVE INSTITUTION ================= */
 
-    let institutionId;
+    let institutionIdToUse;
 
-    if (requesterRole === "super_admin") {
-      if (!paramInstitutionId) {
-        return res.status(400).json({
-          success: false,
-          message: "Institution ID is required for super admin",
-        });
-      }
-      institutionId = paramInstitutionId;
+    if (isSuperAdmin) {
+      // Super admin can update ANY institution
+      institutionIdToUse = paramInstitutionId;
     } else {
-      institutionId = adminInstitutionId;
-
+      // Normal admin can only update their own institution
       if (
-        paramInstitutionId &&
-        paramInstitutionId !== String(adminInstitutionId)
+        !adminInstitutionId ||
+        String(paramInstitutionId) !== String(adminInstitutionId)
       ) {
         return res.status(403).json({
           success: false,
           message: "You are not allowed to update this institution",
         });
       }
+
+      institutionIdToUse = adminInstitutionId;
     }
 
     /* ================= ALLOWED FIELDS ================= */
@@ -146,6 +163,13 @@ export const updateInstitutionSetting = async (req, res) => {
         updates[key] = req.body[key];
       }
     });
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update",
+      });
+    }
 
     /* ================= VALIDATION ================= */
 
@@ -202,7 +226,7 @@ export const updateInstitutionSetting = async (req, res) => {
       });
     }
 
-    /* ================= ADD AUDIT INFO ================= */
+    /* ================= AUDIT INFO ================= */
 
     updates.lastUpdatedBy = userId;
     updates.lastUpdatedAt = new Date();
@@ -210,8 +234,8 @@ export const updateInstitutionSetting = async (req, res) => {
     /* ================= UPDATE ================= */
 
     const updated = await InstitutionSetting.findOneAndUpdate(
-      { institutionId },
-      updates,
+      { institutionId: institutionIdToUse },
+      { $set: updates },
       { new: true, upsert: true }
     );
 
