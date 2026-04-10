@@ -91,12 +91,26 @@ export const updateInstitutionSetting = async (req, res) => {
     const { role, institutionId: adminInstitutionId, userId } = req.user;
     const { id } = req.params;
 
-    /* ================= VALIDATE PARAM ================= */
+    /* ================= ROLE NORMALIZATION ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to update institution settings",
+      });
+    }
+
+    /* ================= VALIDATE ID ================= */
 
     if (!id) {
       return res.status(400).json({
         success: false,
-        message: "Institution ID parameter is required",
+        message: "Institution ID is required",
       });
     }
 
@@ -107,35 +121,24 @@ export const updateInstitutionSetting = async (req, res) => {
       });
     }
 
-    /* ================= ROLE NORMALIZATION ================= */
+    const targetInstitutionId = id;
 
-    const roles = Array.isArray(role) ? role : [role];
-    const isSuperAdmin = roles.includes("super_admin");
+    /* ================= ACCESS CONTROL ================= */
 
-    /* ================= RESOLVE INSTITUTION ================= */
-
-    let institutionIdToUse;
-
-    if (isSuperAdmin) {
-      // 🔥 Super admin ALWAYS uses route param
-      institutionIdToUse = id;
-    } else {
-      // 🔒 Normal admin must match their institution
+    if (isAdmin && !isSuperAdmin) {
       if (!adminInstitutionId) {
         return res.status(403).json({
           success: false,
-          message: "Institution not attached to admin",
+          message: "Admin institution not found",
         });
       }
 
-      if (String(id) !== String(adminInstitutionId)) {
+      if (String(adminInstitutionId) !== String(targetInstitutionId)) {
         return res.status(403).json({
           success: false,
-          message: "You are not allowed to update this institution",
+          message: "Admins can only update their own institution",
         });
       }
-
-      institutionIdToUse = adminInstitutionId;
     }
 
     /* ================= ALLOWED FIELDS ================= */
@@ -153,16 +156,16 @@ export const updateInstitutionSetting = async (req, res) => {
       "notifications",
       "hasDepartments",
       "enforceStaffId",
-      "officeLocation", // 🔥 allow updating geo if needed
+      "officeLocation",
     ];
 
     const updates = {};
 
-    Object.keys(req.body).forEach((key) => {
+    for (const key of Object.keys(req.body)) {
       if (allowedUpdates.includes(key)) {
         updates[key] = req.body[key];
       }
-    });
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({
@@ -171,7 +174,7 @@ export const updateInstitutionSetting = async (req, res) => {
       });
     }
 
-    /* ================= FIELD VALIDATIONS ================= */
+    /* ================= VALIDATIONS ================= */
 
     if (
       updates.gpsRadiusMeters !== undefined &&
@@ -191,18 +194,7 @@ export const updateInstitutionSetting = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "gracePeriodMinutes must be non-negative",
-      });
-    }
-
-    if (
-      updates.qrRefreshSeconds !== undefined &&
-      (typeof updates.qrRefreshSeconds !== "number" ||
-        updates.qrRefreshSeconds <= 0)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "qrRefreshSeconds must be positive",
+        message: "gracePeriodMinutes must be a non-negative number",
       });
     }
 
@@ -212,17 +204,7 @@ export const updateInstitutionSetting = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "allowRemoteClocking must be boolean",
-      });
-    }
-
-    if (
-      updates.allowOfflineClocking !== undefined &&
-      typeof updates.allowOfflineClocking !== "boolean"
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "allowOfflineClocking must be boolean",
+        message: "allowRemoteClocking must be a boolean",
       });
     }
 
@@ -234,7 +216,7 @@ export const updateInstitutionSetting = async (req, res) => {
     /* ================= UPDATE ================= */
 
     const updated = await InstitutionSetting.findOneAndUpdate(
-      { institutionId: new mongoose.Types.ObjectId(institutionIdToUse) },
+      { institutionId: new mongoose.Types.ObjectId(targetInstitutionId) },
       { $set: updates },
       {
         new: true,
@@ -242,8 +224,6 @@ export const updateInstitutionSetting = async (req, res) => {
         setDefaultsOnInsert: true,
       }
     );
-
-    /* ================= RESPONSE ================= */
 
     return res.status(200).json({
       success: true,
@@ -260,7 +240,6 @@ export const updateInstitutionSetting = async (req, res) => {
     });
   }
 };
-
 
 export const updateOfficeLocation = async (req, res) => {
   try {
