@@ -12,6 +12,8 @@ import {
 
 
 
+import moment from "moment-timezone";
+
 export const clockAttendance = async (req, res) => {
   try {
     const {
@@ -25,7 +27,7 @@ export const clockAttendance = async (req, res) => {
       overrideCode,
     } = req.body;
 
-    const userId = req.user.userId || req.user.id ;
+    const userId = req.user.userId || req.user.id;
 
     const userRoles = Array.isArray(req.user.role)
       ? req.user.role
@@ -59,7 +61,7 @@ export const clockAttendance = async (req, res) => {
     }
 
     /* ===============================
-       2️⃣ GPS VALIDATION (EARLY)
+       2️⃣ GPS VALIDATION
     =============================== */
 
     if (!gps || typeof gps.lat !== "number" || typeof gps.lng !== "number") {
@@ -71,12 +73,7 @@ export const clockAttendance = async (req, res) => {
 
     const { lat, lng } = gps;
 
-    if (
-      lat < -90 ||
-      lat > 90 ||
-      lng < -180 ||
-      lng > 180
-    ) {
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       return res.status(400).json({
         success: false,
         message: "Invalid GPS coordinates",
@@ -84,7 +81,7 @@ export const clockAttendance = async (req, res) => {
     }
 
     /* ===============================
-       3️⃣ MODE-SPECIFIC VALIDATION
+       3️⃣ MODE VALIDATION
     =============================== */
 
     if (mode === "qr" && !qrCode)
@@ -100,7 +97,7 @@ export const clockAttendance = async (req, res) => {
       return res.status(400).json({ success: false, message: "Backup code required" });
 
     /* ===============================
-       4️⃣ ADMIN OVERRIDE SECURITY
+       4️⃣ ADMIN OVERRIDE
     =============================== */
 
     const isAdmin =
@@ -110,7 +107,7 @@ export const clockAttendance = async (req, res) => {
       if (!isAdmin) {
         return res.status(403).json({
           success: false,
-          message: "Not authorized for admin override",
+          message: "Not authorized",
         });
       }
 
@@ -149,6 +146,10 @@ export const clockAttendance = async (req, res) => {
       enforceGeofence: false,
       gpsRadiusMeters: 100,
       officeLocation: null,
+      timezone: "Africa/Lagos",
+      workStartTime: "08:00",
+      gracePeriodMinutes: 20,
+      clockingWindow: { earlyMinutes: 20, lateMinutes: 90 },
       ...(institutionSetting ? institutionSetting.toObject() : {}),
     };
 
@@ -158,7 +159,6 @@ export const clockAttendance = async (req, res) => {
 
     const REMOTE_TYPES = ["remote", "hybrid", "field"];
     const isRemoteUser = REMOTE_TYPES.includes(user.clockMode);
-
     const userAllowsRemote = user.remoteAccess?.allowed === true;
 
     if (isRemoteUser && (!settings.allowRemoteClocking || !userAllowsRemote)) {
@@ -169,7 +169,7 @@ export const clockAttendance = async (req, res) => {
     }
 
     /* ===============================
-       8️⃣ GEOFENCE VALIDATION
+       8️⃣ GEOFENCE
     =============================== */
 
     if (
@@ -204,19 +204,46 @@ export const clockAttendance = async (req, res) => {
     }
 
     /* ===============================
-       9️⃣ DATE NORMALIZATION
+       9️⃣ TIME + LATENESS ENGINE
     =============================== */
 
-    const now = new Date();
+    const now = moment().tz(settings.timezone);
 
-    const date = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate()
-    );
+    const [startHour, startMinute] = settings.workStartTime.split(":");
+
+    const expectedStart = moment()
+      .tz(settings.timezone)
+      .set({
+        hour: parseInt(startHour),
+        minute: parseInt(startMinute),
+        second: 0,
+        millisecond: 0,
+      });
+
+    const diffMinutes = now.diff(expectedStart, "minutes");
+
+    let clockInStatus = "on-time";
+
+    if (diffMinutes < -settings.clockingWindow.earlyMinutes) {
+      clockInStatus = "too-early";
+    } else if (diffMinutes < 0) {
+      clockInStatus = "early";
+    } else if (diffMinutes <= settings.gracePeriodMinutes) {
+      clockInStatus = "on-time";
+    } else if (diffMinutes <= settings.clockingWindow.lateMinutes) {
+      clockInStatus = "late";
+    } else {
+      clockInStatus = "very-late";
+    }
 
     /* ===============================
-       🔟 SAVE (DB handles duplicates)
+       🔟 DATE NORMALIZATION
+    =============================== */
+
+    const date = now.clone().startOf("day").toDate();
+
+    /* ===============================
+       11️⃣ SAVE
     =============================== */
 
     const attendance = await AttendanceLog.create({
@@ -231,11 +258,15 @@ export const clockAttendance = async (req, res) => {
         coordinates: [lng, lat],
       },
 
-      timestamp: now,
+      timestamp: now.toDate(),
       date,
 
       validationResult: "accepted",
+
+      // 🔥 IMPORTANT CHANGE
       status: "present",
+      clockInStatus,
+      minutesLate: diffMinutes > 0 ? diffMinutes : 0,
 
       ipAddress: req.ip,
       deviceInfo: req.headers["user-agent"],
@@ -254,6 +285,10 @@ export const clockAttendance = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: `${actionType} successful`,
+      meta: {
+        clockInStatus,
+        minutesLate: diffMinutes > 0 ? diffMinutes : 0,
+      },
       data: attendance,
     });
 
@@ -273,6 +308,7 @@ export const clockAttendance = async (req, res) => {
     });
   }
 };
+
 
 
 export const clockIn = async (req, res) => {

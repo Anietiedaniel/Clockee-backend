@@ -106,6 +106,18 @@ const attendanceLogSchema = new mongoose.Schema(
       default: "present",
     },
 
+    clockInStatus: {
+  type: String,
+  enum: ["too-early", "early", "on-time", "late", "very-late"],
+  default: "on-time",
+},
+
+minutesLate: {
+  type: Number,
+  default: 0,
+},
+
+
     syncStatus: {
       type: String,
       enum: ["online", "offline_pending"],
