@@ -227,7 +227,6 @@ export const updateInstitutionSetting = async (req, res) => {
       },
       {
         new: true,
-        upsert: true,
         setDefaultsOnInsert: true,
       }
     );
