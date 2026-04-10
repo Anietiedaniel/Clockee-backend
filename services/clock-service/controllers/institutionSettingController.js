@@ -94,7 +94,7 @@ export const updateInstitutionSetting = async (req, res) => {
       userId,
     } = req.user;
 
-    const { institutionId: paramInstitutionId } = req.params;
+    const { id: paramInstitutionId } = req.params;
 
     /* ================= ROLE NORMALIZATION ================= */
 
