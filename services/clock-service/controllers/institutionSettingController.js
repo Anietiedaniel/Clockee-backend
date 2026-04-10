@@ -88,8 +88,8 @@ export const getInstitutionSettings = async (req, res) => {
 
 export const updateInstitutionSetting = async (req, res) => {
   try {
-    const { role, institutionId: adminInstitutionId, userId } = req.user;
-    const { id } = req.params;
+    const { role, institutionId: adminInstitutionId} = req.user;
+    const { id: targetInstitutionId } = req.params;
 
     /* ================= ROLE NORMALIZATION ================= */
 
@@ -107,21 +107,21 @@ export const updateInstitutionSetting = async (req, res) => {
 
     /* ================= VALIDATE ID ================= */
 
-    if (!id) {
+    if (!targetInstitutionId) {
       return res.status(400).json({
         success: false,
         message: "Institution ID is required",
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!mongoose.Types.ObjectId.isValid(targetInstitutionId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid institution ID",
       });
     }
 
-    const targetInstitutionId = id;
+    
 
     /* ================= ACCESS CONTROL ================= */
 
@@ -216,7 +216,7 @@ export const updateInstitutionSetting = async (req, res) => {
     /* ================= UPDATE ================= */
 
   const updated = await InstitutionSetting.findOneAndUpdate(
-  { institutionId: targetInstitutionId }, 
+  { _id: targetInstitutionId }, 
   { $set: updates },
   {
     new: true,
