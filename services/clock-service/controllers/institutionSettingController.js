@@ -88,7 +88,12 @@ export const getInstitutionSettings = async (req, res) => {
 
 export const updateInstitutionSetting = async (req, res) => {
   try {
-    const { role, institutionId: adminInstitutionId} = req.user;
+    const {
+      role,
+      institutionId: adminInstitutionId,
+      userId,
+    } = req.user;
+
     const { id: targetInstitutionId } = req.params;
 
     /* ================= ROLE NORMALIZATION ================= */
@@ -121,12 +126,10 @@ export const updateInstitutionSetting = async (req, res) => {
       });
     }
 
-    
-
     /* ================= ACCESS CONTROL ================= */
 
     if (isAdmin && !isSuperAdmin) {
-      if (!targetInstitutionId) {
+      if (!adminInstitutionId) {
         return res.status(403).json({
           success: false,
           message: "Admin institution not found",
@@ -174,7 +177,7 @@ export const updateInstitutionSetting = async (req, res) => {
       });
     }
 
-    /* ================= VALIDATIONS ================= */
+    /* ================= FIELD VALIDATIONS ================= */
 
     if (
       updates.gpsRadiusMeters !== undefined &&
@@ -215,15 +218,21 @@ export const updateInstitutionSetting = async (req, res) => {
 
     /* ================= UPDATE ================= */
 
-  const updated = await InstitutionSetting.findOneAndUpdate(
-  { targetInstitutionId }, 
-  { $set: updates },
-  {
-    new: true,
-    upsert: true,
-    setDefaultsOnInsert: true,
-  }
-);
+    const updated = await InstitutionSetting.findOneAndUpdate(
+      {
+        institutionId: new mongoose.Types.ObjectId(targetInstitutionId),
+      },
+      {
+        $set: updates,
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    /* ================= RESPONSE ================= */
 
     return res.status(200).json({
       success: true,
@@ -240,6 +249,7 @@ export const updateInstitutionSetting = async (req, res) => {
     });
   }
 };
+
 
 export const updateOfficeLocation = async (req, res) => {
   try {
