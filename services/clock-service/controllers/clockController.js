@@ -14,39 +14,120 @@ import {
 
 export const clockAttendance = async (req, res) => {
   try {
-    const { actionType, mode, gps } = req.body;
+    const {
+      actionType,
+      mode,
+      gps,
+      qrCode,
+      totp,
+      token,
+      backupCode,
+      overrideCode,
+    } = req.body;
+
     const userId = req.user.id;
+
+    const userRoles = Array.isArray(req.user.role)
+      ? req.user.role
+      : [req.user.role];
 
     /* ===============================
        1️⃣ BASIC VALIDATION
     =============================== */
 
-    if (!actionType || !["clock-in", "clock-out"].includes(actionType)) {
+    const allowedActions = ["clock-in", "clock-out"];
+    const allowedModes = [
+      "qr",
+      "totp",
+      "silent",
+      "backup_code",
+      "admin_override",
+    ];
+
+    if (!allowedActions.includes(actionType)) {
       return res.status(400).json({
         success: false,
         message: "Invalid action type",
       });
     }
 
-    if (!mode) {
+    if (!allowedModes.includes(mode)) {
       return res.status(400).json({
         success: false,
-        message: "Clocking mode is required",
-      });
-    }
-
-    if (!gps?.lat || !gps?.lng) {
-      return res.status(400).json({
-        success: false,
-        message: "GPS location is required",
+        message: "Invalid clocking mode",
       });
     }
 
     /* ===============================
-       2️⃣ FETCH USER + SETTINGS
+       2️⃣ GPS VALIDATION (EARLY)
+    =============================== */
+
+    if (!gps || typeof gps.lat !== "number" || typeof gps.lng !== "number") {
+      return res.status(400).json({
+        success: false,
+        message: "Valid GPS location is required",
+      });
+    }
+
+    const { lat, lng } = gps;
+
+    if (
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid GPS coordinates",
+      });
+    }
+
+    /* ===============================
+       3️⃣ MODE-SPECIFIC VALIDATION
+    =============================== */
+
+    if (mode === "qr" && !qrCode)
+      return res.status(400).json({ success: false, message: "QR code required" });
+
+    if (mode === "totp" && !totp)
+      return res.status(400).json({ success: false, message: "TOTP required" });
+
+    if (mode === "silent" && !token)
+      return res.status(400).json({ success: false, message: "Token required" });
+
+    if (mode === "backup_code" && !backupCode)
+      return res.status(400).json({ success: false, message: "Backup code required" });
+
+    /* ===============================
+       4️⃣ ADMIN OVERRIDE SECURITY
+    =============================== */
+
+    const isAdmin =
+      userRoles.includes("admin") || userRoles.includes("super_admin");
+
+    if (mode === "admin_override") {
+      if (!isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized for admin override",
+        });
+      }
+
+      if (!overrideCode || overrideCode !== process.env.ADMIN_OVERRIDE_SECRET) {
+        return res.status(403).json({
+          success: false,
+          message: "Invalid override code",
+        });
+      }
+    }
+
+    /* ===============================
+       5️⃣ FETCH USER
     =============================== */
 
     const user = await User.findById(userId);
+
     if (!user || !user.isActive) {
       return res.status(404).json({
         success: false,
@@ -54,121 +135,137 @@ export const clockAttendance = async (req, res) => {
       });
     }
 
+    /* ===============================
+       6️⃣ SETTINGS
+    =============================== */
+
     const institutionSetting = await InstitutionSetting.findOne({
       institutionId: user.institutionId,
       isActive: true,
     });
 
-    if (!institutionSetting) {
-      return res.status(404).json({
+    const settings = {
+      allowRemoteClocking: false,
+      enforceGeofence: false,
+      gpsRadiusMeters: 100,
+      officeLocation: null,
+      ...(institutionSetting ? institutionSetting.toObject() : {}),
+    };
+
+    /* ===============================
+       7️⃣ REMOTE POLICY
+    =============================== */
+
+    const REMOTE_TYPES = ["remote", "hybrid", "field"];
+    const isRemoteUser = REMOTE_TYPES.includes(user.clockMode);
+
+    const userAllowsRemote = user.remoteAccess?.allowed === true;
+
+    if (isRemoteUser && (!settings.allowRemoteClocking || !userAllowsRemote)) {
+      return res.status(403).json({
         success: false,
-        message: "Institution settings not found",
+        message: "Remote clocking not permitted",
       });
     }
 
     /* ===============================
-       3️⃣ REMOTE VALIDATION LOGIC
-    =============================== */
-
-    const institutionAllowsRemote =
-      institutionSetting.allowRemoteClocking;
-
-    const userAllowsRemote =
-      user.remoteAccess?.allowed === true;
-
-    let validationResult = "accepted";
-
-    if (user.clockMode === "remote") {
-      if (!institutionAllowsRemote || !userAllowsRemote) {
-        validationResult = "remote_not_allowed";
-
-        return res.status(403).json({
-          success: false,
-          message: "Remote clocking not permitted",
-        });
-      }
-    }
-
-    /* ===============================
-       4️⃣ GEOFENCE CHECK (NON-REMOTE)
+       8️⃣ GEOFENCE VALIDATION
     =============================== */
 
     if (
-      user.clockMode !== "remote" &&
-      institutionSetting.enforceGeofence &&
-      institutionSetting.officeLocation?.coordinates?.length === 2
+      !isRemoteUser &&
+      settings.enforceGeofence &&
+      settings.officeLocation?.coordinates?.length === 2 &&
+      mode !== "admin_override"
     ) {
-      const [officeLng, officeLat] =
-        institutionSetting.officeLocation.coordinates;
+      const [officeLng, officeLat] = settings.officeLocation.coordinates;
 
-      const withinRadius =
-        await InstitutionSetting.findOne({
-          _id: institutionSetting._id,
-          officeLocation: {
-            $geoWithin: {
-              $centerSphere: [
-                [gps.lng, gps.lat],
-                institutionSetting.gpsRadiusMeters / 6378137,
-              ],
-            },
-          },
+      const toRad = (v) => (v * Math.PI) / 180;
+      const R = 6378137;
+
+      const dLat = toRad(lat - officeLat);
+      const dLng = toRad(lng - officeLng);
+
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(officeLat)) *
+          Math.cos(toRad(lat)) *
+          Math.sin(dLng / 2) ** 2;
+
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distance = R * c;
+
+      if (distance > settings.gpsRadiusMeters) {
+        return res.status(403).json({
+          success: false,
+          message: "Outside allowed location",
         });
-
-      if (!withinRadius) {
-        validationResult = "out_of_zone";
       }
     }
 
     /* ===============================
-       5️⃣ DUPLICATE PREVENTION
+       9️⃣ DATE NORMALIZATION
     =============================== */
 
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
 
-    const existing = await AttendanceLog.findOne({
-      userId,
-      date: today,
-      actionType,
-    });
-
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: `Already clocked ${actionType} today`,
-      });
-    }
+    const date = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate()
+    );
 
     /* ===============================
-       6️⃣ SAVE ATTENDANCE
+       🔟 SAVE (DB handles duplicates)
     =============================== */
 
     const attendance = await AttendanceLog.create({
       userId,
       institutionId: user.institutionId,
+
       actionType,
       mode,
+
       gps: {
-        lat: gps.lat,
-        lng: gps.lng,
+        type: "Point",
+        coordinates: [lng, lat],
       },
-      timestamp: new Date(),
-      date: today,
-      validationResult,
-      status:
-        validationResult === "accepted"
-          ? "present"
-          : "absent",
+
+      timestamp: now,
+      date,
+
+      validationResult: "accepted",
+      status: "present",
+
       ipAddress: req.ip,
       deviceInfo: req.headers["user-agent"],
+
+      ...(mode === "admin_override" && {
+        adminOverrideBy: userId,
+        overrideReason: "Admin override",
+      }),
+
+      ...(mode === "qr" && { qrCode }),
+      ...(mode === "totp" && { totp }),
+      ...(mode === "silent" && { token }),
+      ...(mode === "backup_code" && { backupCode }),
     });
 
     return res.status(201).json({
       success: true,
-      message: "Clock recorded successfully",
+      message: `${actionType} successful`,
       data: attendance,
     });
+
   } catch (error) {
     console.error("Clock attendance error:", error);
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "You already performed this action today",
+      });
+    }
 
     return res.status(500).json({
       success: false,
@@ -176,6 +273,7 @@ export const clockAttendance = async (req, res) => {
     });
   }
 };
+
 
 export const clockIn = async (req, res) => {
   const session = await mongoose.startSession();

@@ -1,6 +1,6 @@
 import mongoose from "../db/mongoose.js";
 
-/* ================= GEOJSON GPS SCHEMA ================= */
+/* ================= GEOJSON ================= */
 
 const gpsSchema = new mongoose.Schema(
   {
@@ -8,58 +8,54 @@ const gpsSchema = new mongoose.Schema(
       type: String,
       enum: ["Point"],
       default: "Point",
-      required: true,
     },
     coordinates: {
       type: [Number], // [lng, lat]
-      required: true,
       validate: {
         validator: function (value) {
           if (!value || value.length !== 2) return false;
 
           const [lng, lat] = value;
 
-          if (lat < -90 || lat > 90) return false;
-          if (lng < -180 || lng > 180) return false;
-
-          return true;
+          return (
+            lat >= -90 &&
+            lat <= 90 &&
+            lng >= -180 &&
+            lng <= 180
+          );
         },
-        message: "Coordinates must be [lng, lat] within valid range",
+        message: "Coordinates must be [lng, lat]",
       },
     },
   },
   { _id: false }
 );
 
-/* ================= MAIN ATTENDANCE SCHEMA ================= */
+/* ================= MAIN SCHEMA ================= */
 
 const attendanceLogSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
       required: true,
+      index: true,
     },
 
     institutionId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Institution",
       required: true,
+      index: true,
     },
 
     branchId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Branch",
       default: null,
     },
 
     shiftId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Shift",
       default: null,
     },
-
-    /* ================= ACTION ================= */
 
     actionType: {
       type: String,
@@ -73,54 +69,21 @@ const attendanceLogSchema = new mongoose.Schema(
       required: true,
     },
 
-    /* ================= GPS (ALWAYS REQUIRED) ================= */
-
     gps: {
       type: gpsSchema,
-      required: true,
+      default: null,
     },
-
-    /* ================= TIME ================= */
 
     timestamp: {
       type: Date,
       required: true,
-    },
-
-    date: {
-      type: String, // YYYY-MM-DD
-      required: true,
       index: true,
     },
 
-    serverReceivedAt: {
-      type: Date,
-      default: Date.now,
-    },
-
-    /* ================= MODE-SPECIFIC FIELDS ================= */
-
-    qrCode: { type: String },
-
-    qrType: {
-      type: String,
-      enum: ["static", "dynamic"],
-    },
-
-    qrExpiresAt: { type: Date },
-
-    totp: { type: String },
-
-    token: { type: String },
-
-    backupCode: { type: String },
-
-    /* ================= SYSTEM STATUS ================= */
-
-    syncStatus: {
-      type: String,
-      enum: ["online", "offline_pending", "synced", "rejected_on_sync"],
-      default: "online",
+    date: {
+      type: Date, // 🔥 FIXED
+      required: true,
+      index: true,
     },
 
     validationResult: {
@@ -129,77 +92,58 @@ const attendanceLogSchema = new mongoose.Schema(
         "accepted",
         "rejected",
         "out_of_zone",
-        "qr_expired",
         "invalid_totp",
         "invalid_backup",
         "remote_not_allowed",
       ],
       default: "accepted",
+      index: true,
     },
-
-    /* ================= ATTENDANCE STATUS ================= */
 
     status: {
       type: String,
-      enum: ["on-time", "late", "absent", "present"],
+      enum: ["present", "late", "absent"],
       default: "present",
     },
 
-    /* ================= ADMIN CONTROL ================= */
-
-    adminOverrideBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+    syncStatus: {
+      type: String,
+      enum: ["online", "offline_pending"],
+      default: "online",
+      index: true,
     },
-
-    reason: { type: String },
-
-    /* ================= META ================= */
 
     ipAddress: String,
     deviceInfo: String,
 
-    isActive: { type: Boolean, default: true },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
   },
   { timestamps: true }
 );
 
 /* ================= INDEXES ================= */
 
-// 🔥 GEO INDEX (VERY IMPORTANT)
-attendanceLogSchema.index({ gps: "2dsphere" });
+// Geo index
+attendanceLogSchema.index(
+  { gps: "2dsphere" },
+  { partialFilterExpression: { gps: { $exists: true } } }
+);
 
-// User history
-attendanceLogSchema.index({ userId: 1, timestamp: -1 });
-
-// Branch queries
-attendanceLogSchema.index({ branchId: 1, timestamp: -1 });
-
-// Institution filter
-attendanceLogSchema.index({ institutionId: 1 });
-
-// Mode filtering
-attendanceLogSchema.index({ mode: 1 });
-
-// QR filtering
-attendanceLogSchema.index({ qrType: 1 });
-
-// Sync tracking
-attendanceLogSchema.index({ syncStatus: 1 });
-
-// Validation tracking
-attendanceLogSchema.index({ validationResult: 1 });
-
-// Soft delete
-attendanceLogSchema.index({ isActive: 1 });
-
-// Daily queries
-attendanceLogSchema.index({ userId: 1, date: 1 });
-
-// 🚨 CRITICAL: prevent duplicate clock-in/out per day
+// Prevent duplicate per day
 attendanceLogSchema.index(
   { userId: 1, date: 1, actionType: 1 },
-  { unique: true }
+  {
+    unique: true,
+    partialFilterExpression: { isActive: true },
+  }
 );
+
+// Query performance
+attendanceLogSchema.index({ userId: 1, timestamp: -1 });
+attendanceLogSchema.index({ institutionId: 1, date: 1 });
 
 export default mongoose.model("AttendanceLog", attendanceLogSchema);

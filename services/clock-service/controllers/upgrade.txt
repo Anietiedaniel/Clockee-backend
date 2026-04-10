@@ -1,3 +1,8 @@
 Track what exactly changed (before vs after)
 Add settings history collection
 Add approval system for sensitive changes
+
+👉 Anti-GPS spoof detection
+👉 Device binding (prevent sharing)
+👉 Face verification layer
+👉 Full payroll-ready attendance engine
