@@ -215,15 +215,15 @@ export const updateInstitutionSetting = async (req, res) => {
 
     /* ================= UPDATE ================= */
 
-    const updated = await InstitutionSetting.findOneAndUpdate(
-      { institutionId: new mongoose.Types.ObjectId(targetInstitutionId) },
-      { $set: updates },
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true,
-      }
-    );
+  const updated = await InstitutionSetting.findOneAndUpdate(
+  { institutionId: targetInstitutionId }, 
+  { $set: updates },
+  {
+    new: true,
+    upsert: true,
+    setDefaultsOnInsert: true,
+  }
+);
 
     return res.status(200).json({
       success: true,
