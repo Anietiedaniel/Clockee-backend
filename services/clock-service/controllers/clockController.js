@@ -25,7 +25,7 @@ export const clockAttendance = async (req, res) => {
       overrideCode,
     } = req.body;
 
-    const userId = req.user. userId;
+    const userId = req.user.userId || req.user.id ;
 
     const userRoles = Array.isArray(req.user.role)
       ? req.user.role
