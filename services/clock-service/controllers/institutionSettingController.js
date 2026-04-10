@@ -216,7 +216,7 @@ export const updateInstitutionSetting = async (req, res) => {
     /* ================= UPDATE ================= */
 
   const updated = await InstitutionSetting.findOneAndUpdate(
-  { _id: targetInstitutionId }, 
+  { targetInstitutionId }, 
   { $set: updates },
   {
     new: true,
