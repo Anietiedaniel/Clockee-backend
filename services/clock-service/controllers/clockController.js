@@ -14,6 +14,8 @@ import {
 
 import moment from "moment-timezone";
 
+import moment from "moment-timezone";
+
 export const clockAttendance = async (req, res) => {
   try {
     const {
@@ -169,15 +171,12 @@ export const clockAttendance = async (req, res) => {
     }
 
     /* ===============================
-       8️⃣ GEOFENCE
+       8️⃣ DISTANCE + GEOFENCE
     =============================== */
 
-    if (
-      !isRemoteUser &&
-      settings.enforceGeofence &&
-      settings.officeLocation?.coordinates?.length === 2 &&
-      mode !== "admin_override"
-    ) {
+    let distanceFromOffice = null;
+
+    if (settings.officeLocation?.coordinates?.length === 2) {
       const [officeLng, officeLat] = settings.officeLocation.coordinates;
 
       const toRad = (v) => (v * Math.PI) / 180;
@@ -193,12 +192,21 @@ export const clockAttendance = async (req, res) => {
           Math.sin(dLng / 2) ** 2;
 
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distance = R * c;
+      distanceFromOffice = R * c;
 
-      if (distance > settings.gpsRadiusMeters) {
+      if (
+        !isRemoteUser &&
+        settings.enforceGeofence &&
+        mode !== "admin_override" &&
+        distanceFromOffice > settings.gpsRadiusMeters
+      ) {
         return res.status(403).json({
           success: false,
           message: "Outside allowed location",
+          meta: {
+            distanceFromOffice: Math.round(distanceFromOffice),
+            allowedRadius: settings.gpsRadiusMeters,
+          },
         });
       }
     }
@@ -263,10 +271,14 @@ export const clockAttendance = async (req, res) => {
 
       validationResult: "accepted",
 
-      // 🔥 IMPORTANT CHANGE
       status: "present",
       clockInStatus,
       minutesLate: diffMinutes > 0 ? diffMinutes : 0,
+
+      // ✅ NEW FIELD
+      distanceFromOffice: distanceFromOffice
+        ? Math.round(distanceFromOffice)
+        : null,
 
       ipAddress: req.ip,
       deviceInfo: req.headers["user-agent"],
@@ -288,6 +300,9 @@ export const clockAttendance = async (req, res) => {
       meta: {
         clockInStatus,
         minutesLate: diffMinutes > 0 ? diffMinutes : 0,
+        distanceFromOffice: distanceFromOffice
+          ? Math.round(distanceFromOffice)
+          : null,
       },
       data: attendance,
     });
@@ -308,6 +323,7 @@ export const clockAttendance = async (req, res) => {
     });
   }
 };
+
 
 
 

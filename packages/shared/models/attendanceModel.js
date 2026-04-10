@@ -86,6 +86,12 @@ const attendanceLogSchema = new mongoose.Schema(
       index: true,
     },
 
+    distanceFromOffice: {
+  type: Number, // in meters
+  default: null,
+},
+
+
     validationResult: {
       type: String,
       enum: [
