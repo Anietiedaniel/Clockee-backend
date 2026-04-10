@@ -88,48 +88,47 @@ export const getInstitutionSettings = async (req, res) => {
 
 export const updateInstitutionSetting = async (req, res) => {
   try {
-    const {
-      role,
-      institutionId: adminInstitutionId,
-      userId,
-    } = req.user;
-
-    const { id: paramInstitutionId } = req.params;
-
-    /* ================= ROLE NORMALIZATION ================= */
-
-    const roles = Array.isArray(role) ? role : [role];
-    const isSuperAdmin = roles.includes("super_admin");
+    const { role, institutionId: adminInstitutionId, userId } = req.user;
+    const { id } = req.params;
 
     /* ================= VALIDATE PARAM ================= */
 
-    if (!paramInstitutionId) {
+    if (!id) {
       return res.status(400).json({
         success: false,
         message: "Institution ID parameter is required",
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(paramInstitutionId)) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid institution ID",
       });
     }
 
+    /* ================= ROLE NORMALIZATION ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+    const isSuperAdmin = roles.includes("super_admin");
+
     /* ================= RESOLVE INSTITUTION ================= */
 
     let institutionIdToUse;
 
     if (isSuperAdmin) {
-      // Super admin can update ANY institution
-      institutionIdToUse = paramInstitutionId;
+      // 🔥 Super admin ALWAYS uses route param
+      institutionIdToUse = id;
     } else {
-      // Normal admin can only update their own institution
-      if (
-        !adminInstitutionId ||
-        String(paramInstitutionId) !== String(adminInstitutionId)
-      ) {
+      // 🔒 Normal admin must match their institution
+      if (!adminInstitutionId) {
+        return res.status(403).json({
+          success: false,
+          message: "Institution not attached to admin",
+        });
+      }
+
+      if (String(id) !== String(adminInstitutionId)) {
         return res.status(403).json({
           success: false,
           message: "You are not allowed to update this institution",
@@ -154,6 +153,7 @@ export const updateInstitutionSetting = async (req, res) => {
       "notifications",
       "hasDepartments",
       "enforceStaffId",
+      "officeLocation", // 🔥 allow updating geo if needed
     ];
 
     const updates = {};
@@ -171,7 +171,7 @@ export const updateInstitutionSetting = async (req, res) => {
       });
     }
 
-    /* ================= VALIDATION ================= */
+    /* ================= FIELD VALIDATIONS ================= */
 
     if (
       updates.gpsRadiusMeters !== undefined &&
@@ -191,7 +191,7 @@ export const updateInstitutionSetting = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "gracePeriodMinutes must be a non-negative number",
+        message: "gracePeriodMinutes must be non-negative",
       });
     }
 
@@ -202,7 +202,7 @@ export const updateInstitutionSetting = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "qrRefreshSeconds must be a positive number",
+        message: "qrRefreshSeconds must be positive",
       });
     }
 
@@ -212,7 +212,7 @@ export const updateInstitutionSetting = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "allowRemoteClocking must be a boolean",
+        message: "allowRemoteClocking must be boolean",
       });
     }
 
@@ -222,11 +222,11 @@ export const updateInstitutionSetting = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "allowOfflineClocking must be a boolean",
+        message: "allowOfflineClocking must be boolean",
       });
     }
 
-    /* ================= AUDIT INFO ================= */
+    /* ================= AUDIT ================= */
 
     updates.lastUpdatedBy = userId;
     updates.lastUpdatedAt = new Date();
@@ -234,9 +234,13 @@ export const updateInstitutionSetting = async (req, res) => {
     /* ================= UPDATE ================= */
 
     const updated = await InstitutionSetting.findOneAndUpdate(
-      { institutionId: institutionIdToUse },
+      { institutionId: new mongoose.Types.ObjectId(institutionIdToUse) },
       { $set: updates },
-      { new: true, upsert: true }
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+      }
     );
 
     /* ================= RESPONSE ================= */
