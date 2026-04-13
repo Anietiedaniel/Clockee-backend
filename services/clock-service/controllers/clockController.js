@@ -1037,77 +1037,130 @@ export const adminOverrideClock = async (req, res) => {
 export const getAttendanceHistory = async (req, res) => {
   try {
     const { role, institutionId, _id: userId } = req.user;
+
     const {
-      user,         
+      user,
       dateFrom,
       dateTo,
       actionType,
       mode,
       page = 1,
-      limit = 10
+      limit = 10,
     } = req.query;
 
-    // Determine whose records to fetch
+    /* ===============================
+       USER SCOPE
+    =============================== */
+
     let targetUserId = userId;
 
-    if (role === "admin" || role === "super_admin") {
-      targetUserId = user || userId; // allow admin to pass userId query
+    if (["admin", "super_admin"].includes(role)) {
+      targetUserId = user || userId;
     }
 
-    // Build date range filter
-    const dateFilter = {};
-    if (dateFrom) dateFilter.$gte = new Date(dateFrom);
-    if (dateTo) dateFilter.$lte = new Date(dateTo);
+    /* ===============================
+       DATE FILTER (USE NORMALIZED DATE)
+    =============================== */
 
-    // Build query
     const query = {
       institutionId,
       userId: targetUserId,
     };
-    if (Object.keys(dateFilter).length) query.timestamp = dateFilter;
+
+    if (dateFrom || dateTo) {
+      query.date = {};
+      if (dateFrom) query.date.$gte = new Date(dateFrom);
+      if (dateTo) query.date.$lte = new Date(dateTo);
+    }
+
     if (actionType) query.actionType = actionType;
     if (mode) query.mode = mode;
 
-    // Pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // Fetch records
+    /* ===============================
+       FETCH LOGS
+    =============================== */
+
     const logs = await AttendanceLog.find(query)
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
+      .sort({ date: -1, timestamp: -1 })
       .lean();
 
-    // Add GPS & QR type info to each log
-    const processedLogs = logs.map(log => ({
-      ...log,
-      gps: log.gps || { lat: null, lng: null },
-      qrType: log.qrCode ? (log.mode === "qr_dynamic" ? "dynamic" : "static") : null,
-      isAdminOverride: log.mode === "admin_override" ? true : false
-    }));
+    /* ===============================
+       GROUP BY DAY (IMPORTANT)
+    =============================== */
 
-    // Count total
-    const total = await AttendanceLog.countDocuments(query);
+    const grouped = {};
+
+    logs.forEach((log) => {
+      const dayKey = new Date(log.date).toISOString().split("T")[0];
+
+      if (!grouped[dayKey]) {
+        grouped[dayKey] = {
+          date: dayKey,
+          clockIn: null,
+          clockOut: null,
+        };
+      }
+
+      if (log.actionType === "clock-in") {
+        grouped[dayKey].clockIn = {
+          time: log.timestamp,
+          status: log.clockInStatus,
+          minutesLate: log.minutesLate,
+          mode: log.mode,
+        };
+      }
+
+      if (log.actionType === "clock-out") {
+        grouped[dayKey].clockOut = {
+          time: log.timestamp,
+          status: log.clockOutStatus,
+          workDurationMinutes: log.workDurationMinutes,
+          productivityStatus: log.productivityStatus,
+          mode: log.mode,
+        };
+      }
+    });
+
+    /* ===============================
+       PAGINATE AFTER GROUPING
+    =============================== */
+
+    const groupedArray = Object.values(grouped);
+
+    const total = groupedArray.length;
+
+    const paginated = groupedArray.slice(skip, skip + parseInt(limit));
+
+    /* ===============================
+       RESPONSE
+    =============================== */
 
     res.status(200).json({
-      message: "Attendance history fetched successfully.",
+      success: true,
+      message: "Attendance history fetched successfully",
       total,
       currentPage: parseInt(page),
       totalPages: Math.ceil(total / limit),
-      data: processedLogs,
+      data: paginated,
     });
   } catch (err) {
     console.error("Error fetching attendance history:", err);
-    res.status(500).json({ message: "Server error." });
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
+
 
 
 
 export const syncOfflineLogs = async (req, res) => {
   try {
     const { offlineLogs } = req.body;
-    const { _id: userId, institutionId, role } = req.user;
+    const { _id: userId, institutionId } = req.user;
 
     if (!offlineLogs || !Array.isArray(offlineLogs) || offlineLogs.length === 0) {
       return res.status(400).json({ message: "No offline logs provided." });
@@ -1119,65 +1172,160 @@ export const syncOfflineLogs = async (req, res) => {
       const { branchId, gps, actionType, mode, timestamp, qrCode } = log;
 
       try {
-        // Validate branch
-        const branch = await Branch.findById(branchId);
-        if (!branch || branch.institutionId.toString() !== institutionId.toString()) {
-          results.push({ ...log, syncStatus: "rejected_on_sync", reason: "Invalid branch or institution" });
-          continue;
-        }
+        const now = moment(timestamp);
+        const date = now.clone().startOf("day").toDate();
 
-        // Validate GPS
-        const toRad = (v) => (v * Math.PI) / 180;
-        const R = 6371e3;
-        const dLat = toRad(gps.lat - branch.gps.lat);
-        const dLon = toRad(gps.lng - branch.gps.lng);
-        const a =
-          Math.sin(dLat / 2) ** 2 +
-          Math.cos(toRad(branch.gps.lat)) *
-          Math.cos(toRad(gps.lat)) *
-          Math.sin(dLon / 2) ** 2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distance = R * c;
+        /* ===============================
+           SETTINGS
+        =============================== */
 
-        if (distance > branch.gps.radius) {
-          results.push({ ...log, syncStatus: "rejected_on_sync", reason: "Out of zone" });
-          continue;
-        }
+        const settingsDoc = await InstitutionSetting.findOne({
+          institutionId,
+          isActive: true,
+        });
 
-        // Prevent duplicates
+        const settings = {
+          timezone: "Africa/Lagos",
+          workStartTime: "08:00",
+          workEndTime: "17:00",
+          expectedWorkHours: 8,
+          ...(settingsDoc ? settingsDoc.toObject() : {}),
+        };
+
+        /* ===============================
+           DUPLICATE CHECK (SMART)
+        =============================== */
+
         const existing = await AttendanceLog.findOne({
           userId,
-          branchId,
           actionType,
-          timestamp: new Date(timestamp),
+          date,
         });
 
         if (existing) {
-          results.push({ ...log, syncStatus: "rejected_on_sync", reason: "Duplicate log" });
+          results.push({
+            ...log,
+            syncStatus: "rejected_on_sync",
+            reason: "Already exists for this day",
+          });
           continue;
         }
 
-        // Save new synced log
-        const saved = await AttendanceLog.create({
-          userId,
-          institutionId,
-          branchId,
-          actionType,
-          mode: mode || "silent",
-          qrCode: qrCode || null,
-          qrType: qrCode ? (mode === "qr_dynamic" ? "dynamic" : "static") : null,
-          gps,
-          timestamp: new Date(timestamp),
-          serverReceivedAt: new Date(),
-          syncStatus: "synced",
-          validationResult: "accepted",
-          isAdminOverride: mode === "admin_override" ? true : false,
-        });
+        /* ===============================
+           CLOCK-IN
+        =============================== */
 
-        results.push({ ...log, syncStatus: "synced", _id: saved._id });
+        if (actionType === "clock-in") {
+          const [h, m] = settings.workStartTime.split(":").map(Number);
+
+          const expectedStart = moment(timestamp).set({
+            hour: h,
+            minute: m,
+            second: 0,
+          });
+
+          const diffMinutes = now.diff(expectedStart, "minutes");
+
+          let clockInStatus = "on-time";
+
+          if (diffMinutes < -20) clockInStatus = "too-early";
+          else if (diffMinutes < 0) clockInStatus = "early";
+          else if (diffMinutes <= 20) clockInStatus = "on-time";
+          else if (diffMinutes <= 90) clockInStatus = "late";
+          else clockInStatus = "very-late";
+
+          const saved = await AttendanceLog.create({
+            userId,
+            institutionId,
+            branchId,
+            actionType,
+            mode: mode || "offline",
+            gps,
+            timestamp: new Date(timestamp),
+            date,
+
+            clockInStatus,
+            minutesLate: diffMinutes > 0 ? diffMinutes : 0,
+
+            syncStatus: "synced",
+            serverReceivedAt: new Date(),
+          });
+
+          results.push({ ...log, syncStatus: "synced", _id: saved._id });
+          continue;
+        }
+
+        /* ===============================
+           CLOCK-OUT
+        =============================== */
+
+        if (actionType === "clock-out") {
+          const lastClockIn = await AttendanceLog.findOne({
+            userId,
+            actionType: "clock-in",
+            date,
+          });
+
+          if (!lastClockIn) {
+            results.push({
+              ...log,
+              syncStatus: "rejected_on_sync",
+              reason: "No clock-in found",
+            });
+            continue;
+          }
+
+          const workDurationMinutes = now.diff(
+            moment(lastClockIn.timestamp),
+            "minutes"
+          );
+
+          let clockOutStatus = "completed";
+
+          const [h, m] = settings.workEndTime.split(":").map(Number);
+
+          const expectedEnd = moment(timestamp).set({
+            hour: h,
+            minute: m,
+          });
+
+          if (now.isBefore(expectedEnd)) clockOutStatus = "early_exit";
+          else if (now.isAfter(expectedEnd)) clockOutStatus = "overtime";
+
+          const expectedMinutes = (settings.expectedWorkHours || 8) * 60;
+
+          let productivityStatus = "normal";
+          if (workDurationMinutes < expectedMinutes * 0.5) {
+            productivityStatus = "underworked";
+          }
+
+          const saved = await AttendanceLog.create({
+            userId,
+            institutionId,
+            branchId,
+            actionType,
+            mode: mode || "offline",
+            gps,
+            timestamp: new Date(timestamp),
+            date,
+
+            clockOutStatus,
+            workDurationMinutes,
+            productivityStatus,
+
+            syncStatus: "synced",
+            serverReceivedAt: new Date(),
+          });
+
+          results.push({ ...log, syncStatus: "synced", _id: saved._id });
+        }
       } catch (innerErr) {
-        console.error("Error syncing individual log:", innerErr);
-        results.push({ ...log, syncStatus: "rejected_on_sync", reason: "Server error" });
+        console.error("Sync error:", innerErr);
+        results.push({
+          ...log,
+          syncStatus: "rejected_on_sync",
+          reason: "Server error",
+        });
       }
     }
 
@@ -1195,6 +1343,7 @@ export const syncOfflineLogs = async (req, res) => {
     res.status(500).json({ message: "Server error during sync." });
   }
 };
+
 
 
 

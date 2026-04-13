@@ -164,6 +164,12 @@ export const updateInstitutionSetting = async (req, res) => {
       "hasDepartments",
       "enforceStaffId",
       "officeLocation",
+
+      
+      "workStartTime",
+      "workEndTime",
+      "minimumWorkMinutes",
+      
     ];
 
     const updates = {};
@@ -201,7 +207,7 @@ export const updateInstitutionSetting = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "gracePeriodMinutes must be a non-negative number",
+        message: "gracePeriodMinutes must be non-negative",
       });
     }
 
@@ -211,11 +217,46 @@ export const updateInstitutionSetting = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "allowRemoteClocking must be a boolean",
+        message: "allowRemoteClocking must be boolean",
       });
     }
 
-    /* ================= GEO VALIDATION (CRITICAL FIX) ================= */
+    /* ================= TIME VALIDATION (NEW 🔥) ================= */
+
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+    if (
+      updates.workStartTime &&
+      !timeRegex.test(updates.workStartTime)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "workStartTime must be HH:mm format",
+      });
+    }
+
+    if (
+      updates.workEndTime &&
+      !timeRegex.test(updates.workEndTime)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "workEndTime must be HH:mm format",
+      });
+    }
+
+    if (
+      updates.minimumWorkMinutes !== undefined &&
+      (typeof updates.minimumWorkMinutes !== "number" ||
+        updates.minimumWorkMinutes < 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "minimumWorkMinutes must be a positive number",
+      });
+    }
+
+    /* ================= GEO VALIDATION ================= */
 
     if (updates.officeLocation) {
       const loc = updates.officeLocation;
@@ -224,9 +265,7 @@ export const updateInstitutionSetting = async (req, res) => {
         !loc.type ||
         loc.type !== "Point" ||
         !Array.isArray(loc.coordinates) ||
-        loc.coordinates.length !== 2 ||
-        typeof loc.coordinates[0] !== "number" ||
-        typeof loc.coordinates[1] !== "number"
+        loc.coordinates.length !== 2
       ) {
         return res.status(400).json({
           success: false,
@@ -256,8 +295,6 @@ export const updateInstitutionSetting = async (req, res) => {
       }
     );
 
-    /* ================= RESPONSE ================= */
-
     return res.status(200).json({
       success: true,
       message: "Institution settings updated successfully",
@@ -273,6 +310,7 @@ export const updateInstitutionSetting = async (req, res) => {
     });
   }
 };
+
 
 
 
