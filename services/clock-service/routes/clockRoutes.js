@@ -1,5 +1,5 @@
 import { protect,checkInstitutionActive } from "@clockee/shared";
-import { clockAttendance, clockOut, getAttendanceHistory,syncOfflineLogs, adminOverrideClock, getRealTimeStatus, getDashboardSummary  } from "../controllers/clockController.js";
+import { clockAttendance, getAttendanceHistory,syncOfflineLogs, adminOverrideClock, getRealTimeStatus, getDashboardSummary  } from "../controllers/clockController.js";
 import express from "express";
 import { isAdmin } from "../middleware/authMiddleware.js";
 // import {requireCompleteProfile} from "../../auth-service/middleware/profileComplete.js"
@@ -14,8 +14,8 @@ const router = express.Router();
 router.post("/admin/override", protect, isAdmin, adminOverrideClock);
 // router.post("/in", protect, checkInstitutionActive,requireCompleteProfile,checkClockInPolicy, clockIn);
 
-router.post("/in", protect, checkInstitutionActive, clockAttendance);
-router.post("/out", protect, checkClockInPolicy, clockOut);
+router.post("/clock", protect, checkInstitutionActive, clockAttendance);
+
 router.get("/history", protect, getAttendanceHistory);
 router.post("/sync", protect, syncOfflineLogs);
 router.get("/realtime/status", protect, isAdmin, getRealTimeStatus);
