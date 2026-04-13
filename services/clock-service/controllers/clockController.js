@@ -590,7 +590,7 @@ export const clockAttendance = async (req, res) => {
         gps: { type: "Point", coordinates: [lng, lat] },
         timestamp: now.toDate(),
         date,
-        status: "completed",
+        clockOutStatus: "completed",
         workDurationMinutes,
         distanceFromOffice: distanceFromOffice
           ? Math.round(distanceFromOffice)

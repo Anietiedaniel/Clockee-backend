@@ -118,6 +118,12 @@ const attendanceLogSchema = new mongoose.Schema(
   default: "on-time",
 },
 
+clockOutStatus: {
+  type: String,
+  enum: ["completed", "early_exit", "overtime"],
+},
+
+
 minutesLate: {
   type: Number,
   default: 0,
