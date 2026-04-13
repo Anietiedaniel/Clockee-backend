@@ -611,7 +611,7 @@ export const clockAttendance = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to process attendance",
+      message: error.message,
     });
   }
 };
