@@ -322,6 +322,300 @@ import {
 
 
 
+// export const clockAttendance = async (req, res) => {
+//   try {
+//     const {
+//       actionType,
+//       mode,
+//       gps,
+//       qrCode,
+//       totp,
+//       token,
+//       backupCode,
+//       overrideCode,
+//     } = req.body;
+
+//     const userId = req.user.userId || req.user.id;
+
+//     const userRoles = Array.isArray(req.user.role)
+//       ? req.user.role
+//       : [req.user.role];
+
+//     /* ===============================
+//        BASIC VALIDATION
+//     =============================== */
+
+//     const allowedActions = ["clock-in", "clock-out"];
+//     const allowedModes = [
+//       "qr",
+//       "totp",
+//       "silent",
+//       "backup_code",
+//       "admin_override",
+//     ];
+
+//     if (!allowedActions.includes(actionType)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid action type",
+//       });
+//     }
+
+//     if (!allowedModes.includes(mode)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid clocking mode",
+//       });
+//     }
+
+//     /* ===============================
+//        GPS VALIDATION
+//     =============================== */
+
+//     if (!gps || typeof gps.lat !== "number" || typeof gps.lng !== "number") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Valid GPS location is required",
+//       });
+//     }
+
+//     const { lat, lng } = gps;
+
+//     /* ===============================
+//        MODE VALIDATION
+//     =============================== */
+
+//     if (mode === "qr" && !qrCode)
+//       return res.status(400).json({ success: false, message: "QR code required" });
+
+//     if (mode === "totp" && !totp)
+//       return res.status(400).json({ success: false, message: "TOTP required" });
+
+//     if (mode === "silent" && !token)
+//       return res.status(400).json({ success: false, message: "Token required" });
+
+//     if (mode === "backup_code" && !backupCode)
+//       return res.status(400).json({ success: false, message: "Backup code required" });
+
+//     /* ===============================
+//         ADMIN OVERRIDE
+//     =============================== */
+
+//     const isAdmin =
+//       userRoles.includes("admin") || userRoles.includes("super_admin");
+
+//     if (mode === "admin_override") {
+//       if (!isAdmin) {
+//         return res.status(403).json({
+//           success: false,
+//           message: "Not authorized",
+//         });
+//       }
+
+//       if (!overrideCode || overrideCode !== process.env.ADMIN_OVERRIDE_SECRET) {
+//         return res.status(403).json({
+//           success: false,
+//           message: "Invalid override code",
+//         });
+//       }
+//     }
+
+//     /* ===============================
+//         FETCH USER
+//     =============================== */
+
+//     const user = await User.findById(userId);
+
+//     if (!user || !user.isActive) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found or inactive",
+//       });
+//     }
+
+//     /* ===============================
+//         SETTINGS
+//     =============================== */
+
+//     const institutionSetting = await InstitutionSetting.findOne({
+//       institutionId: user.institutionId,
+//       isActive: true,
+//     });
+
+//     const settings = {
+//       allowRemoteClocking: false,
+//       enforceGeofence: false,
+//       gpsRadiusMeters: 100,
+//       officeLocation: null,
+//       timezone: "Africa/Lagos",
+//       workStartTime: "08:00",
+//       gracePeriodMinutes: 20,
+//       clockingWindow: { earlyMinutes: 20, lateMinutes: 90 },
+//       ...(institutionSetting ? institutionSetting.toObject() : {}),
+//     };
+
+//     /* ===============================
+//         GEO + DISTANCE
+//     =============================== */
+
+//     let distanceFromOffice = null;
+
+//     if (settings.officeLocation?.coordinates?.length === 2) {
+//       const [officeLng, officeLat] = settings.officeLocation.coordinates;
+
+//       const toRad = (v) => (v * Math.PI) / 180;
+//       const R = 6378137;
+
+//       const dLat = toRad(lat - officeLat);
+//       const dLng = toRad(lng - officeLng);
+
+//       const a =
+//         Math.sin(dLat / 2) ** 2 +
+//         Math.cos(toRad(officeLat)) *
+//           Math.cos(toRad(lat)) *
+//           Math.sin(dLng / 2) ** 2;
+
+//       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+//       distanceFromOffice = R * c;
+
+//       if (
+//         settings.enforceGeofence &&
+//         mode !== "admin_override" &&
+//         distanceFromOffice > settings.gpsRadiusMeters
+//       ) {
+//         return res.status(403).json({
+//           success: false,
+//           message: "Outside allowed location",
+//         });
+//       }
+//     }
+
+//     const now = moment().tz(settings.timezone);
+//     const date = now.clone().startOf("day").toDate();
+
+//     let attendance;
+
+//     /* ===============================
+//        🟢 CLOCK-IN
+//     =============================== */
+
+//     if (actionType === "clock-in") {
+//       const existing = await AttendanceLog.findOne({
+//         userId,
+//         institutionId: user.institutionId,
+//         actionType: "clock-in",
+//         date,
+//       });
+
+//       if (existing) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "You already clocked in today",
+//         });
+//       }
+
+//       const diffMinutes = now.diff(
+//         moment().tz(settings.timezone).set({
+//           hour: 8,
+//           minute: 0,
+//         }),
+//         "minutes"
+//       );
+
+//       attendance = await AttendanceLog.create({
+//         userId,
+//         institutionId: user.institutionId,
+//         actionType,
+//         mode,
+//         gps: { type: "Point", coordinates: [lng, lat] },
+//         timestamp: now.toDate(),
+//         date,
+//         status: "present",
+//         minutesLate: diffMinutes > 0 ? diffMinutes : 0,
+//         distanceFromOffice: distanceFromOffice
+//           ? Math.round(distanceFromOffice)
+//           : null,
+//       });
+
+//       return res.status(201).json({
+//         success: true,
+//         message: "Clock-in successful",
+//         data: attendance,
+//       });
+//     }
+
+//     /* ===============================
+//        🔴 CLOCK-OUT
+//     =============================== */
+
+//     if (actionType === "clock-out") {
+//       const lastClockIn = await AttendanceLog.findOne({
+//         userId,
+//         institutionId: user.institutionId,
+//         actionType: "clock-in",
+//         date,
+//       }).sort({ timestamp: -1 });
+
+//       if (!lastClockIn) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "No clock-in found for today",
+//         });
+//       }
+
+//       const existingOut = await AttendanceLog.findOne({
+//         userId,
+//         institutionId: user.institutionId,
+//         actionType: "clock-out",
+//         date,
+//       });
+
+//       if (existingOut) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "You already clocked out today",
+//         });
+//       }
+
+//       const workDurationMinutes = now.diff(
+//         moment(lastClockIn.timestamp),
+//         "minutes"
+//       );
+
+//       attendance = await AttendanceLog.create({
+//         userId,
+//         institutionId: user.institutionId,
+//         actionType,
+//         mode,
+//         gps: { type: "Point", coordinates: [lng, lat] },
+//         timestamp: now.toDate(),
+//         date,
+//         clockOutStatus: "completed",
+//         workDurationMinutes,
+//         distanceFromOffice: distanceFromOffice
+//           ? Math.round(distanceFromOffice)
+//           : null,
+//       });
+
+//       return res.status(201).json({
+//         success: true,
+//         message: "Clock-out successful",
+//         meta: {
+//           workDurationMinutes,
+//         },
+//         data: attendance,
+//       });
+//     }
+//   } catch (error) {
+//     console.error("Clock attendance error:", error);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message,
+//     });
+//   }
+// };
+
 export const clockAttendance = async (req, res) => {
   try {
     const {
@@ -355,35 +649,18 @@ export const clockAttendance = async (req, res) => {
     ];
 
     if (!allowedActions.includes(actionType)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid action type",
-      });
+      return res.status(400).json({ success: false, message: "Invalid action type" });
     }
 
     if (!allowedModes.includes(mode)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid clocking mode",
-      });
+      return res.status(400).json({ success: false, message: "Invalid clocking mode" });
     }
 
-    /* ===============================
-       GPS VALIDATION
-    =============================== */
-
     if (!gps || typeof gps.lat !== "number" || typeof gps.lng !== "number") {
-      return res.status(400).json({
-        success: false,
-        message: "Valid GPS location is required",
-      });
+      return res.status(400).json({ success: false, message: "Valid GPS required" });
     }
 
     const { lat, lng } = gps;
-
-    /* ===============================
-       MODE VALIDATION
-    =============================== */
 
     if (mode === "qr" && !qrCode)
       return res.status(400).json({ success: false, message: "QR code required" });
@@ -398,7 +675,7 @@ export const clockAttendance = async (req, res) => {
       return res.status(400).json({ success: false, message: "Backup code required" });
 
     /* ===============================
-        ADMIN OVERRIDE
+       ADMIN OVERRIDE
     =============================== */
 
     const isAdmin =
@@ -406,22 +683,16 @@ export const clockAttendance = async (req, res) => {
 
     if (mode === "admin_override") {
       if (!isAdmin) {
-        return res.status(403).json({
-          success: false,
-          message: "Not authorized",
-        });
+        return res.status(403).json({ success: false, message: "Not authorized" });
       }
 
       if (!overrideCode || overrideCode !== process.env.ADMIN_OVERRIDE_SECRET) {
-        return res.status(403).json({
-          success: false,
-          message: "Invalid override code",
-        });
+        return res.status(403).json({ success: false, message: "Invalid override code" });
       }
     }
 
     /* ===============================
-        FETCH USER
+       FETCH USER
     =============================== */
 
     const user = await User.findById(userId);
@@ -434,7 +705,7 @@ export const clockAttendance = async (req, res) => {
     }
 
     /* ===============================
-        SETTINGS
+       SETTINGS
     =============================== */
 
     const institutionSetting = await InstitutionSetting.findOne({
@@ -443,19 +714,20 @@ export const clockAttendance = async (req, res) => {
     });
 
     const settings = {
-      allowRemoteClocking: false,
+      timezone: "Africa/Lagos",
+      workStartTime: "08:00",
+      workEndTime: "17:00",
+      expectedWorkHours: 8,
+      gracePeriodMinutes: 20,
+      clockingWindow: { earlyMinutes: 20, lateMinutes: 90 },
       enforceGeofence: false,
       gpsRadiusMeters: 100,
       officeLocation: null,
-      timezone: "Africa/Lagos",
-      workStartTime: "08:00",
-      gracePeriodMinutes: 20,
-      clockingWindow: { earlyMinutes: 20, lateMinutes: 90 },
       ...(institutionSetting ? institutionSetting.toObject() : {}),
     };
 
     /* ===============================
-        GEO + DISTANCE
+       GEO CHECK
     =============================== */
 
     let distanceFromOffice = null;
@@ -514,13 +786,33 @@ export const clockAttendance = async (req, res) => {
         });
       }
 
-      const diffMinutes = now.diff(
-        moment().tz(settings.timezone).set({
-          hour: 8,
-          minute: 0,
-        }),
-        "minutes"
-      );
+      // ✅ USE SETTINGS TIME
+      const [startHour, startMin] = settings.workStartTime.split(":").map(Number);
+
+      const expectedStart = moment()
+        .tz(settings.timezone)
+        .set({
+          hour: startHour,
+          minute: startMin,
+          second: 0,
+          millisecond: 0,
+        });
+
+      const diffMinutes = now.diff(expectedStart, "minutes");
+
+      let clockInStatus = "on-time";
+
+      if (diffMinutes < -settings.clockingWindow.earlyMinutes) {
+        clockInStatus = "too-early";
+      } else if (diffMinutes < 0) {
+        clockInStatus = "early";
+      } else if (diffMinutes <= settings.gracePeriodMinutes) {
+        clockInStatus = "on-time";
+      } else if (diffMinutes <= settings.clockingWindow.lateMinutes) {
+        clockInStatus = "late";
+      } else {
+        clockInStatus = "very-late";
+      }
 
       attendance = await AttendanceLog.create({
         userId,
@@ -530,8 +822,11 @@ export const clockAttendance = async (req, res) => {
         gps: { type: "Point", coordinates: [lng, lat] },
         timestamp: now.toDate(),
         date,
+
         status: "present",
+        clockInStatus,
         minutesLate: diffMinutes > 0 ? diffMinutes : 0,
+
         distanceFromOffice: distanceFromOffice
           ? Math.round(distanceFromOffice)
           : null,
@@ -540,6 +835,10 @@ export const clockAttendance = async (req, res) => {
       return res.status(201).json({
         success: true,
         message: "Clock-in successful",
+        meta: {
+          clockInStatus,
+          minutesLate: diffMinutes > 0 ? diffMinutes : 0,
+        },
         data: attendance,
       });
     }
@@ -582,6 +881,41 @@ export const clockAttendance = async (req, res) => {
         "minutes"
       );
 
+      /* ===== CLOCK-OUT STATUS ===== */
+
+      let clockOutStatus = "completed";
+      let expectedEnd = null;
+
+      // SHIFT FIRST
+      if (lastClockIn.shiftId) {
+        const shift = await Shift.findById(lastClockIn.shiftId);
+        if (shift?.endTime) {
+          const [h, m] = shift.endTime.split(":").map(Number);
+          expectedEnd = moment().tz(settings.timezone).set({ hour: h, minute: m });
+        }
+      }
+
+      // FALLBACK
+      if (!expectedEnd && settings.workEndTime) {
+        const [h, m] = settings.workEndTime.split(":").map(Number);
+        expectedEnd = moment().tz(settings.timezone).set({ hour: h, minute: m });
+      }
+
+      if (expectedEnd) {
+        if (now.isBefore(expectedEnd)) clockOutStatus = "early_exit";
+        else if (now.isAfter(expectedEnd)) clockOutStatus = "overtime";
+      }
+
+      /* ===== UNDERWORK DETECTION ===== */
+
+      const expectedMinutes = (settings.expectedWorkHours || 8) * 60;
+
+      let productivityStatus = "normal";
+
+      if (workDurationMinutes < expectedMinutes * 0.5) {
+        productivityStatus = "underworked";
+      }
+
       attendance = await AttendanceLog.create({
         userId,
         institutionId: user.institutionId,
@@ -590,8 +924,11 @@ export const clockAttendance = async (req, res) => {
         gps: { type: "Point", coordinates: [lng, lat] },
         timestamp: now.toDate(),
         date,
-        clockOutStatus: "completed",
+
+        clockOutStatus,
         workDurationMinutes,
+        productivityStatus,
+
         distanceFromOffice: distanceFromOffice
           ? Math.round(distanceFromOffice)
           : null,
@@ -602,6 +939,8 @@ export const clockAttendance = async (req, res) => {
         message: "Clock-out successful",
         meta: {
           workDurationMinutes,
+          clockOutStatus,
+          productivityStatus,
         },
         data: attendance,
       });
@@ -615,7 +954,6 @@ export const clockAttendance = async (req, res) => {
     });
   }
 };
-
 
 
 export const adminOverrideClock = async (req, res) => {

@@ -37,6 +37,24 @@ const institutionSettingSchema = new mongoose.Schema(
         min: 0,
       },
     },
+    
+    /* ================= WORK SCHEDULE ================= */
+
+workStartTime: {
+  type: String, // "08:00"
+  default: "08:00",
+},
+
+workEndTime: {
+  type: String, // "17:00"
+  default: "17:00",
+},
+
+expectedWorkHours: {
+  type: Number, 
+  default: 8,
+},
+
 
     /* ================= MAIN OFFICE LOCATION ================= */
 
