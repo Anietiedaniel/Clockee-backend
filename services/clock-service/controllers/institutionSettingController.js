@@ -3,17 +3,21 @@ import {InstitutionSetting} from "@clockee/shared";
 export const getInstitutionSettings = async (req, res) => {
   try {
     const {
-      role: requesterRoles = [],   // now array
+      role: requesterRoles = [],
       institutionId: adminInstitutionId,
     } = req.user;
 
     const { id: targetInstitutionId } = req.params;
 
-    /* ================= CHECK ROLE ================= */
+    /* ================= ROLE ================= */
 
-    const isSuperAdmin = requesterRoles.includes("super_admin");
+    const roles = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
 
-    /* ================= RESOLVE INSTITUTION ================= */
+    const isSuperAdmin = roles.includes("super_admin");
+
+    /* ================= RESOLVE ================= */
 
     let institutionId;
 
@@ -24,6 +28,7 @@ export const getInstitutionSettings = async (req, res) => {
           message: "Institution ID is required for super admin",
         });
       }
+
       institutionId = targetInstitutionId;
     } else {
       institutionId = adminInstitutionId;
@@ -36,33 +41,31 @@ export const getInstitutionSettings = async (req, res) => {
       });
     }
 
-    /* ================= FETCH SETTINGS ================= */
+    /* ================= FETCH ================= */
 
-    let settings = await InstitutionSetting.findOne({ institutionId });
+    let settings = await InstitutionSetting.findOne({
+      institutionId: new mongoose.Types.ObjectId(institutionId),
+    });
 
-    /* ================= DEFAULT FALLBACK ================= */
+    /* ================= DEFAULT ================= */
 
     if (!settings) {
       settings = {
         institutionId,
 
-        // attendance defaults
         workingDays: [],
         gracePeriodMinutes: 0,
         gpsRadiusMeters: 100,
         qrRefreshSeconds: 60,
         timezone: "UTC",
 
-        // policies
         enforceGeofence: false,
         allowOfflineClocking: false,
         allowRemoteClocking: false,
 
-        // features
         hasDepartments: false,
         enforceStaffId: false,
 
-        // notifications
         notifications: {},
 
         isActive: true,
