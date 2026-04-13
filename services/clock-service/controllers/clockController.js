@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import moment from "moment-timezone";
 import { Branch,AttendanceLog,Shift, User, InstitutionSetting  } from "@clockee/shared";
 import {
   validateBranch,
@@ -9,12 +10,6 @@ import {
 
 } from "../utils/clock.helpers.js";
 
-
-
-
-import moment from "moment-timezone";
-
-import moment from "moment-timezone";
 
 export const clockAttendance = async (req, res) => {
   try {
