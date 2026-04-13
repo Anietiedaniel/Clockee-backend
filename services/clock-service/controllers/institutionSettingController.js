@@ -218,6 +218,9 @@ export const updateInstitutionSetting = async (req, res) => {
 
     updates.lastUpdatedBy = userId;
     updates.lastUpdatedAt = new Date();
+    updates.idsent = req.user.institutionId,
+    updates.url = req.originalUrl,
+    updates.para = req.params.id,
 
     /* ================= UPDATE ================= */
     console.log("==== DEBUG START ====");
@@ -246,9 +249,7 @@ console.log("==== DEBUG END ====");
       success: true,
       message: "Institution settings updated successfully",
       data: updated,
-      idsent: req.user.institutionId,
-      url: req.originalUrl,
-      para: req.params.id,
+
     });
 
   } catch (error) {
