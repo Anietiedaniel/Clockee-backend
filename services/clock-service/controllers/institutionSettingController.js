@@ -1,4 +1,5 @@
 import {InstitutionSetting} from "@clockee/shared";
+import mongoose from "mongoose";
 
 export const getInstitutionSettings = async (req, res) => {
   try {
