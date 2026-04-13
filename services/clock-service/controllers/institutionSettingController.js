@@ -251,7 +251,7 @@ export const updateInstitutionSetting = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to update institution settings",
+      message:  error.message,
     });
   }
 };
