@@ -220,6 +220,12 @@ export const updateInstitutionSetting = async (req, res) => {
     updates.lastUpdatedAt = new Date();
 
     /* ================= UPDATE ================= */
+    console.log("==== DEBUG START ====");
+console.log("PARAM ID:", req.params.id);
+console.log("USER institutionId:", req.user.institutionId);
+console.log("FULL URL:", req.originalUrl);
+console.log("==== DEBUG END ====");
+
 
     const updated = await InstitutionSetting.findOneAndUpdate(
       {
@@ -230,7 +236,7 @@ export const updateInstitutionSetting = async (req, res) => {
       },
       {
         new: true,
-        setDefaultsOnInsert: true,
+        upsert: true,
       }
     );
 
@@ -240,6 +246,9 @@ export const updateInstitutionSetting = async (req, res) => {
       success: true,
       message: "Institution settings updated successfully",
       data: updated,
+      idsent: req.user.institutionId,
+      url: req.originalUrl,
+      para: req.params.id,
     });
 
   } catch (error) {
