@@ -221,11 +221,7 @@ export const updateInstitutionSetting = async (req, res) => {
     
 
     /* ================= UPDATE ================= */
-    console.log("==== DEBUG START ====");
-console.log("PARAM ID:", req.params.id);
-console.log("USER institutionId:", req.user.institutionId);
-console.log("FULL URL:", req.originalUrl);
-console.log("==== DEBUG END ====");
+
 
 
     const updated = await InstitutionSetting.findOneAndUpdate(
@@ -246,7 +242,7 @@ console.log("==== DEBUG END ====");
     return res.status(200).json({
       success: true,
       message: "Institution settings updated successfully",
-  
+      data: updated,
 
     });
 
