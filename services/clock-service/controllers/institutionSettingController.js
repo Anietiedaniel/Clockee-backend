@@ -215,15 +215,33 @@ export const updateInstitutionSetting = async (req, res) => {
       });
     }
 
+    /* ================= GEO VALIDATION (CRITICAL FIX) ================= */
+
+    if (updates.officeLocation) {
+      const loc = updates.officeLocation;
+
+      if (
+        !loc.type ||
+        loc.type !== "Point" ||
+        !Array.isArray(loc.coordinates) ||
+        loc.coordinates.length !== 2 ||
+        typeof loc.coordinates[0] !== "number" ||
+        typeof loc.coordinates[1] !== "number"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "officeLocation must be { type: 'Point', coordinates: [lng, lat] }",
+        });
+      }
+    }
+
     /* ================= AUDIT ================= */
 
     updates.lastUpdatedBy = userId;
     updates.lastUpdatedAt = new Date();
-    
 
     /* ================= UPDATE ================= */
-
-
 
     const updated = await InstitutionSetting.findOneAndUpdate(
       {
@@ -244,7 +262,6 @@ export const updateInstitutionSetting = async (req, res) => {
       success: true,
       message: "Institution settings updated successfully",
       data: updated,
-
     });
 
   } catch (error) {
@@ -252,10 +269,11 @@ export const updateInstitutionSetting = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message:  error.message,
+      message: error.message,
     });
   }
 };
+
 
 
 export const updateOfficeLocation = async (req, res) => {
