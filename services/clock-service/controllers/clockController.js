@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import moment from "moment-timezone";
 import { Branch,AttendanceLog,Shift, User, InstitutionSetting  } from "@clockee/shared";
 import {

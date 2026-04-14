@@ -12,7 +12,6 @@ import { checkClockInPolicy } from "../middleware/clockPolicy.js";
 const router = express.Router();
 
 router.post("/admin/override", protect, isAdmin, adminOverrideClock);
-// router.post("/in", protect, checkInstitutionActive,requireCompleteProfile,checkClockInPolicy, clockIn);
 
 router.post("/clock", protect, checkInstitutionActive, clockAttendance);
 

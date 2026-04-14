@@ -2,7 +2,8 @@ import { User } from "@clockee/shared";
 
 export const getMyProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select(
+    
+    const user = await User.findById(req.userId).select(
       "-passwordHash -backupCodes"
     );
 
