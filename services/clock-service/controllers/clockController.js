@@ -444,17 +444,38 @@ export const getAttendanceHistory = async (req, res) => {
     } = req.query;
 
     /* ===============================
-       USER SCOPE
+       NORMALIZE ROLE
+    =============================== */
+
+    const roles = Array.isArray(role) ? role : [role];
+    const isAdmin = roles.includes("admin");
+    const isSuperAdmin = roles.includes("super_admin");
+
+    /* ===============================
+       USER SCOPE CONTROL
     =============================== */
 
     let targetUserId = userId;
 
-    if (["admin", "super_admin"].includes(role)) {
-      targetUserId = user || userId;
+    // Admin/SuperAdmin can view other users
+    if ((isAdmin || isSuperAdmin) && user) {
+      const foundUser = await User.findOne({
+        _id: user,
+        institutionId,
+      });
+
+      if (!foundUser) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found in this institution",
+        });
+      }
+
+      targetUserId = user;
     }
 
     /* ===============================
-       DATE FILTER (USE NORMALIZED DATE)
+       BUILD QUERY
     =============================== */
 
     const query = {
@@ -471,10 +492,8 @@ export const getAttendanceHistory = async (req, res) => {
     if (actionType) query.actionType = actionType;
     if (mode) query.mode = mode;
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
     /* ===============================
-       FETCH LOGS
+       FETCH LOGS (Sorted)
     =============================== */
 
     const logs = await AttendanceLog.find(query)
@@ -482,12 +501,12 @@ export const getAttendanceHistory = async (req, res) => {
       .lean();
 
     /* ===============================
-       GROUP BY DAY (IMPORTANT)
+       GROUP BY DAY
     =============================== */
 
     const grouped = {};
 
-    logs.forEach((log) => {
+    for (const log of logs) {
       const dayKey = new Date(log.date).toISOString().split("T")[0];
 
       if (!grouped[dayKey]) {
@@ -516,33 +535,39 @@ export const getAttendanceHistory = async (req, res) => {
           mode: log.mode,
         };
       }
-    });
+    }
 
     /* ===============================
-       PAGINATE AFTER GROUPING
+       PAGINATION AFTER GROUPING
     =============================== */
 
     const groupedArray = Object.values(grouped);
 
     const total = groupedArray.length;
+    const parsedLimit = parseInt(limit);
+    const parsedPage = parseInt(page);
 
-    const paginated = groupedArray.slice(skip, skip + parseInt(limit));
+    const skip = (parsedPage - 1) * parsedLimit;
+
+    const paginated = groupedArray.slice(skip, skip + parsedLimit);
 
     /* ===============================
        RESPONSE
     =============================== */
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Attendance history fetched successfully",
       total,
-      currentPage: parseInt(page),
-      totalPages: Math.ceil(total / limit),
+      currentPage: parsedPage,
+      totalPages: Math.ceil(total / parsedLimit),
       data: paginated,
     });
+
   } catch (err) {
     console.error("Error fetching attendance history:", err);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Server error",
     });
