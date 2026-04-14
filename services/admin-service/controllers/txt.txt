@@ -31,3 +31,12 @@ Frontend calls /auth/profile
 Frontend sees missing fields
  ↓
 Redirect to Complete Profile screen
+
+
+institutionSetting.allowRemoteClocking === true
+AND
+user.remoteAccess.allowed === true
+
+
+auth.controller.js        → login, register, reset password
+user.controller.js        → get profile, update profile, change password

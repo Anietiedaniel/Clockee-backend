@@ -449,6 +449,88 @@ export const getAllAdmins = async (req, res) => {
     });
   }
 };
+
+export const getUserById = async (req, res) => {
+  try {
+    const { role: requesterRoles, institutionId, _id } = req.user;
+    const { id } = req.params;
+
+    /* ================= VALIDATE ID ================= */
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    /* ================= ROLE NORMALIZATION ================= */
+
+    const roles = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
+
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+    const isSelf = String(_id) === String(id);
+
+    /* ================= ACCESS CONTROL ================= */
+
+    if (!isSuperAdmin && !isAdmin && !isSelf) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= FILTER ================= */
+
+    const filter = { _id: id };
+
+    if (!isSuperAdmin) {
+      filter.institutionId = institutionId;
+    }
+
+    /* ================= FETCH ================= */
+
+    const user = await User.findOne(filter).select(
+      "-passwordHash -backupCodes"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        institutionId: user.institutionId,
+        branchId: user.branchId,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+      },
+    });
+
+  } catch (err) {
+    console.error("Error fetching user:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+
 export const deactivateUser = async (req, res) => {
   try {
     const { role, institutionId: adminInstitutionId } = req.user;
@@ -1148,19 +1230,25 @@ export const resendInvite = async (req, res) => {
   }
 };
 
+
 export const updateUserRemoteAccess = async (req, res) => {
   try {
-    const {
-      role: requesterRole,
-      institutionId: adminInstitutionId,
-    } = req.user;
+    const { role, institutionId: adminInstitutionId, _id } = req.user;
+    const { institutionId: targetInstitutionId, allowed } = req.body;
 
-    const { institutionId: targetInstitutionId, ...updates } = req.body;
+    const roles = Array.isArray(role) ? role : [role];
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
 
-    const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId
-        : adminInstitutionId;
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        message: "Not authorized",
+      });
+    }
+
+    const institutionId = isSuperAdmin
+      ? targetInstitutionId
+      : adminInstitutionId;
 
     if (!institutionId) {
       return res.status(400).json({
@@ -1179,16 +1267,27 @@ export const updateUserRemoteAccess = async (req, res) => {
       });
     }
 
-    user.allowRemoteClocking = updates.allowRemoteClocking;
+    if (typeof allowed !== "boolean") {
+      return res.status(400).json({
+        message: "allowed must be boolean",
+      });
+    }
+
+    user.remoteAccess.allowed = allowed;
+    user.remoteAccess.approvedBy = _id;
+    user.remoteAccess.approvedAt = new Date();
+
     await user.save();
 
     return res.json({
       message: "User remote access updated successfully",
       user,
     });
+
   } catch (err) {
     return res.status(500).json({
       message: "Failed to update user remote access",
+      error: err.message,
     });
   }
 };

@@ -7,6 +7,7 @@ import morgan from "morgan";
 import cors from "cors";
 import {connectDB} from "@clockee/shared";
 import authRouter from "./routes/authRoutes.js";
+import userRouter from "./routes/userRoutes.js";
 console.log("MONGO_URI:", process.env.MONGO_URI);
 
 const PORT = process.env.PORT || 4000;
@@ -47,6 +48,7 @@ async function start() {
 
   // Mount auth routes
   app.use("/auth", authRouter);
+  app.use("/user", userRouter);
 
   // Global error handler
   app.use((err, req, res, next) => {
