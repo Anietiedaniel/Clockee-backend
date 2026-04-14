@@ -2,25 +2,41 @@ import { User } from "@clockee/shared";
 
 export const getMyProfile = async (req, res) => {
   try {
-    const user = req.user;
+    const user = await User.findById(req.user.userId)
+      .select("-passwordHash -backupCodes");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
 
     return res.status(200).json({
       success: true,
       data: {
-        id: user._id || user.userId,
+        id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
-        phone: user.phone,
-        address: user.address,
         institutionId: user.institutionId,
-        branchId: user.branchId,
+        institutionName: user.institutionName,
+        institutionType: user.institutionType,
+        departmentOrUnit: user.departmentOrUnit,
+        studentOrStaffId: user.studentOrStaffId,
+        address: user.address,
+        phone: user.phone,
+        clockMode: user.clockMode,
+        remoteAccess: user.remoteAccess,
         isActive: user.isActive,
         createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
       },
     });
 
   } catch (error) {
+    console.error("Error fetching profile:", error);
+
     return res.status(500).json({
       success: false,
       message: "Server error",
