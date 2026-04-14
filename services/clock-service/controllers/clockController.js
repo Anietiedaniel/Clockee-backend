@@ -431,7 +431,7 @@ export const adminOverrideClock = async (req, res) => {
 
 export const getAttendanceHistory = async (req, res) => {
   try {
-    const { role, institutionId, _id: userId } = req.user;
+    const { role, institutionId, userId } = req.user;
 
     const {
       user,
