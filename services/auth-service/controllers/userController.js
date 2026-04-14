@@ -66,16 +66,18 @@ export const changePassword = async (req, res) => {
 
 export const updateMyProfile = async (req, res) => {
   try {
-    const { name, phone } = req.body;
+    const { name, phoneNumber, address } = req.body;
 
     const updates = {};
-    if (name) updates.name = name;
-    if (phone) updates.phone = phone;
+
+    if (name !== undefined) updates.name = name;
+    if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber;
+    if (address !== undefined) updates.address = address;
 
     const user = await User.findByIdAndUpdate(
-      req.user._id,
-      updates,
-      { new: true }
+      req.user.userId,
+      { $set: updates },
+      { new: true, runValidators: true }
     ).select("-passwordHash -backupCodes");
 
     return res.status(200).json({
