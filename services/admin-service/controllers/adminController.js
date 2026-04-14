@@ -376,28 +376,39 @@ export const getAllUsers = async (req, res) => {
 
 export const getAllAdmins = async (req, res) => {
   try {
-    const { role: requesterRoles, institutionId: adminInstitutionId } = req.user;
+    const {
+      role: requesterRoles,
+      institutionId: adminInstitutionId,
+    } = req.user;
+
     const { id: targetInstitutionId } = req.query;
+
+    /* ================= NORMALIZE ROLES ================= */
 
     const requesterRoleArray = Array.isArray(requesterRoles)
       ? requesterRoles
       : [requesterRoles];
 
     /* ================= RESOLVE INSTITUTION ================= */
+
     let institutionId;
 
     if (requesterRoleArray.includes("super_admin")) {
+      // Super admin can fetch from any institution
       institutionId = targetInstitutionId || undefined;
     } else if (requesterRoleArray.includes("admin")) {
+      // Admin can only fetch from their own institution
       institutionId = adminInstitutionId;
     } else {
       return res.status(403).json({
+        success: false,
         message: "Admin access required",
       });
     }
 
     if (!institutionId && !requesterRoleArray.includes("super_admin")) {
       return res.status(400).json({
+        success: false,
         message: "Institution ID is required",
       });
     }
@@ -407,8 +418,13 @@ export const getAllAdmins = async (req, res) => {
     const filter = {
       ...(institutionId && { institutionId }),
 
-      // Only admin & super_admin
-      role: { $in: ["admin", "super_admin"] },
+      // MUST contain admin or super_admin
+      role: {
+        $in: ["admin", "super_admin"],
+
+        // MUST NOT contain these
+        $nin: ["staff", "student", "pending", "rejected"],
+      },
     };
 
     /* ================= QUERY ================= */
@@ -486,7 +502,6 @@ export const deactivateUser = async (req, res) => {
     });
   }
 };
-
 export const reactivateUser = async (req, res) => {
   try {
     const { role, institutionId: adminInstitutionId } = req.user;
