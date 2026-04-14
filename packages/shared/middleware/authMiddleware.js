@@ -68,7 +68,8 @@ export async function protect(req, res, next) {
     /* ===============================
        4️⃣ FETCH USER (SOURCE OF TRUTH)
     =============================== */
-    const user = await User.findById(decoded.userId).select("-passwordHash");
+     const user = await User.findById(decoded.userId || decoded.id);
+
 
     if (!user) {
       return res.status(401).json({
