@@ -37,8 +37,7 @@ function generateToken(user) {
       institutionId: user.institutionId,
       name: user.name, 
       email: user.email,
-      phone: user.phone,
-      address: user.address,
+      
     },
     JWT_SECRET,
     { expiresIn: "24h" }
