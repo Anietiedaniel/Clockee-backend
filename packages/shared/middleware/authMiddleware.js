@@ -21,6 +21,19 @@ export async function protect(req, res, next) {
 
     const token = authHeader.split(" ")[1];
 
+    if (!token) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Check blacklist
+    const blacklisted = await TokenBlacklist.findOne({ token });
+
+    if (blacklisted) {
+      return res.status(401).json({
+        message: "Session expired. Please login again.",
+      });
+    }
+
     // 🔒 Verify token
     const decoded = jwt.verify(token, JWT_SECRET);
 

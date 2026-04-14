@@ -15,6 +15,7 @@ import {
   sendAlert,
   Visitor,
   InviteToken,
+  TokenBlacklist,
 } from "@clockee/shared";
 
 
@@ -391,6 +392,46 @@ export async function loginUser(req, res, next) {
     next(err);
   }
 }
+
+export const logoutUser = async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Token required",
+      });
+    }
+
+    const decoded = jwt.decode(token);
+
+    if (!decoded?.exp) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid token",
+      });
+    }
+
+    await TokenBlacklist.create({
+      token,
+      expiresAt: new Date(decoded.exp * 1000),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged out successfully",
+    });
+
+  } catch (error) {
+    console.error("Logout error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Logout failed",
+    });
+  }
+};
 
 export async function verifyToken(req, res) {
   try {

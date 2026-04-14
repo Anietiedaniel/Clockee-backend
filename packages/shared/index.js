@@ -5,6 +5,7 @@ export { default as Branch } from "./models/branchModel.js";
 export { default as Shift } from "./models/shiftModel.js";
 export { default as Institution } from "./models/institutionModel.js";
 export { default as InviteToken } from "./models/inviteToken.js";
+export { default as TokenBlacklist } from "./models/tokenBlackList.js";
 export { default as Visitor } from "./models/visitorModel.js";
 export { default as InstitutionSetting } from "./models/institutionSetting.js";
 export { checkInstitutionActive} from "./middleware/checkInstitutionActive.js"
