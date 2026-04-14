@@ -5,6 +5,7 @@ import {
   registerViaQrInvite,
   registerVisitor,
   loginUser,
+  logoutUser,
   verifyToken,
   getProfile,
   generateBackupCodes,
@@ -31,6 +32,7 @@ router.get('/debug/users', async (req, res) => {
 router.post("/register", registerUser);
 router.post("/visitor/register", registerVisitor);
 router.post("/login", loginUser); 
+router.post("/logout", logoutUser); 
 router.get("/verify-token", protect, verifyToken);
 router.post("/register/invite", registerWithInvite);
 // register via public invite when submit is hit
