@@ -1,4 +1,4 @@
-import { User, verifyPassword, hashPassword } from "@clockee/shared";
+import { User, verifyPassword } from "@clockee/shared";
 export const getMyProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.userId)
