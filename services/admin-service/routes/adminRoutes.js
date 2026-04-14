@@ -2,11 +2,10 @@ import express from "express";
 import { protect } from "@clockee/shared";
 import { authorizeAdmin } from "../middleware/authorizeAdmin.js";
 import { generateQrInvite } from "../controllers/inviteController.js";
-import { getPendingUsers, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess,
+import { getPendingUsers, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById
   reactivateUser, rejectUser, generatePublicOnboardingLink, 
   promoteToAdmin, demoteAdmin,getAllAdmins} from "../controllers/adminController.js";
 
-// import { getDailyAttendanceStatus } from "../controllers/dashboardController.js";
 const upload = multer({ dest: "uploads/" });
 import multer from "multer";
 
@@ -17,6 +16,10 @@ router.get("/:id/pending-users", protect, authorizeAdmin, getPendingUsers);
 
 // GET users
 router.get("/institution/users", protect, authorizeAdmin, getAllUsers);
+
+// get a specific user
+router.get("/institution/user", protect, authorizeAdmin, getUserById);
+
 
 // GET admins
 router.get("/institution/admins", protect, authorizeAdmin, getAllAdmins);
@@ -29,13 +32,6 @@ router.post("/invite", protect, authorizeAdmin, createInvite);
 
 router.post("/register/token-link",  registerWithTokenInvite);
 
-
-// router.post(
-//   "/institution/invite",
-//   protect,
-//   authorizeAdmin,
-//   createOrRotateInstitutionInvite
-// );
 
 // PATCH /admin/users/:id/approval
 router.patch("/users/:id/approval", protect, authorizeAdmin, updateUserApproval);
