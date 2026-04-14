@@ -2,7 +2,7 @@ import express from "express";
 import { protect } from "@clockee/shared";
 import { authorizeAdmin } from "../middleware/authorizeAdmin.js";
 import { generateQrInvite } from "../controllers/inviteController.js";
-import { getPendingUsers, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById
+import { getPendingUsers, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById,
   reactivateUser, rejectUser, generatePublicOnboardingLink, 
   promoteToAdmin, demoteAdmin,getAllAdmins} from "../controllers/adminController.js";
 
@@ -18,7 +18,7 @@ router.get("/:id/pending-users", protect, authorizeAdmin, getPendingUsers);
 router.get("/institution/users", protect, authorizeAdmin, getAllUsers);
 
 // get a specific user
-router.get("/institution/user", protect, authorizeAdmin, getUserById);
+router.get("/institution/user/:id", protect, authorizeAdmin, getUserById);
 
 
 // GET admins

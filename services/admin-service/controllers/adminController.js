@@ -450,12 +450,11 @@ export const getAllAdmins = async (req, res) => {
   }
 };
 
+// admin and supper admin lookup
 export const getUserById = async (req, res) => {
   try {
-    const { role: requesterRoles, institutionId, _id } = req.user;
+    const { role: requesterRoles, institutionId, userId } = req.user;
     const { id } = req.params;
-
-    /* ================= VALIDATE ID ================= */
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -464,17 +463,13 @@ export const getUserById = async (req, res) => {
       });
     }
 
-    /* ================= ROLE NORMALIZATION ================= */
-
     const roles = Array.isArray(requesterRoles)
       ? requesterRoles
       : [requesterRoles];
 
     const isSuperAdmin = roles.includes("super_admin");
     const isAdmin = roles.includes("admin");
-    const isSelf = String(_id) === String(id);
-
-    /* ================= ACCESS CONTROL ================= */
+    const isSelf = String(userId) === String(id); // ✅ FIXED
 
     if (!isSuperAdmin && !isAdmin && !isSelf) {
       return res.status(403).json({
@@ -483,15 +478,11 @@ export const getUserById = async (req, res) => {
       });
     }
 
-    /* ================= FILTER ================= */
-
     const filter = { _id: id };
 
     if (!isSuperAdmin) {
       filter.institutionId = institutionId;
     }
-
-    /* ================= FETCH ================= */
 
     const user = await User.findOne(filter).select(
       "-passwordHash -backupCodes"
@@ -504,20 +495,9 @@ export const getUserById = async (req, res) => {
       });
     }
 
-    /* ================= RESPONSE ================= */
-
     return res.status(200).json({
       success: true,
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        institutionId: user.institutionId,
-        branchId: user.branchId,
-        isActive: user.isActive,
-        createdAt: user.createdAt,
-      },
+      data: user,
     });
 
   } catch (err) {
