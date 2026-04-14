@@ -46,9 +46,43 @@ export const getMyProfile = async (req, res) => {
 
 export const changePassword = async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword, confirmPassword } = req.body;
 
-    const user = await User.findById(req.user._id);
+    /* ================= VALIDATION ================= */
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "All password fields are required",
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New passwords do not match",
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters",
+      });
+    }
+
+    /* ================= GET USER ================= */
+
+    const user = await User.findById(req.user.userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    /* ================= VERIFY CURRENT PASSWORD ================= */
 
     const isMatch = await verifyPassword(
       currentPassword,
@@ -61,6 +95,22 @@ export const changePassword = async (req, res) => {
         message: "Current password is incorrect",
       });
     }
+
+    /* ================= PREVENT REUSING SAME PASSWORD ================= */
+
+    const isSamePassword = await verifyPassword(
+      newPassword,
+      user.passwordHash
+    );
+
+    if (isSamePassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be different from current password",
+      });
+    }
+
+    /* ================= SAVE NEW PASSWORD ================= */
 
     user.passwordHash = await hashPassword(newPassword);
     await user.save();
