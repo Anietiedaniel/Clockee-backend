@@ -377,9 +377,8 @@ export const getAllUsers = async (req, res) => {
 export const getAllAdmins = async (req, res) => {
   try {
     const { role: requesterRoles, institutionId: adminInstitutionId } = req.user;
-    const { id: targetInstitutionId, role: roleFilter } = req.query;
+    const { id: targetInstitutionId } = req.query;
 
-    // Normalize requester roles
     const requesterRoleArray = Array.isArray(requesterRoles)
       ? requesterRoles
       : [requesterRoles];
@@ -403,29 +402,14 @@ export const getAllAdmins = async (req, res) => {
       });
     }
 
-    /* ================= BUILD BASE FILTER ================= */
+    /* ================= FILTER ================= */
 
     const filter = {
       ...(institutionId && { institutionId }),
 
-      // Exclude invalid roles
-      role: { $nin: ["pending", "rejected"] },
+      // Only admin & super_admin
+      role: { $in: ["admin", "super_admin"] },
     };
-
-    /* ================= ROLE FILTER ================= */
-
-    if (roleFilter) {
-      const allowedRoles = ["super-admin", "admin"];
-
-      if (!allowedRoles.includes(roleFilter)) {
-        return res.status(400).json({
-          message: "Invalid role filter",
-        });
-      }
-
-      // Replace role filter completely
-      filter.role = { $in: [roleFilter] };
-    }
 
     /* ================= QUERY ================= */
 
@@ -441,7 +425,7 @@ export const getAllAdmins = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Error fetching users:", err);
+    console.error("Error fetching admins:", err);
 
     return res.status(500).json({
       success: false,
@@ -449,7 +433,6 @@ export const getAllAdmins = async (req, res) => {
     });
   }
 };
-
 export const deactivateUser = async (req, res) => {
   try {
     const { role, institutionId: adminInstitutionId } = req.user;
