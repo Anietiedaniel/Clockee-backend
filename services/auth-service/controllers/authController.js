@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
 
 
 
@@ -599,7 +600,7 @@ export async function forgotPassword(req, res) {
 
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: err.message,
     });
   }
 }
