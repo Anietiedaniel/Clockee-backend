@@ -604,16 +604,36 @@ export async function forgotPassword(req, res) {
   }
 }
 
+import crypto from "crypto";
+import { User, hashPassword } from "@clockee/shared";
+
 export async function resetPassword(req, res) {
   try {
     const { token } = req.params;
     const { password } = req.body;
 
+    /* ================= VALIDATION ================= */
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: "Password is required",
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters",
+      });
+    }
+
+    /* ================= HASH TOKEN ================= */
     const tokenHash = crypto
       .createHash("sha256")
       .update(token)
       .digest("hex");
 
+    /* ================= FIND USER ================= */
     const user = await User.findOne({
       resetPasswordToken: tokenHash,
       resetPasswordExpires: { $gt: Date.now() },
@@ -626,17 +646,27 @@ export async function resetPassword(req, res) {
       });
     }
 
+    /* ================= UPDATE PASSWORD ================= */
     user.passwordHash = await hashPassword(password);
+
+    /* ================= CLEAR RESET FIELDS ================= */
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+
     await user.save();
 
-    res.json({
+    return res.status(200).json({
       success: true,
       message: "Password reset successful",
     });
+
   } catch (err) {
-    res.status(500).json({ success: false });
+    console.error("Reset password error:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 }
 
