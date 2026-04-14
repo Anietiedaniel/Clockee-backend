@@ -11,6 +11,9 @@ export async function protect(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
 
+    /* ===============================
+       1️⃣ CHECK AUTH HEADER
+    =============================== */
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
         success: false,
@@ -18,12 +21,41 @@ export async function protect(req, res, next) {
       });
     }
 
-    const token = authHeader.split(" ")[1];
+    const token = authHeader.split(" ")[1]?.trim();
 
-    // ✅ 1. VERIFY FIRST
-    const decoded = jwt.verify(token, JWT_SECRET);
+    if (!token || token === "undefined" || token === "null") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token format",
+      });
+    }
 
-    // ✅ 2. THEN check blacklist
+    /* ===============================
+       2️⃣ VERIFY TOKEN FIRST
+    =============================== */
+    let decoded;
+
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      console.error("JWT verification failed:", err.name, err.message);
+
+      if (err.name === "TokenExpiredError") {
+        return res.status(401).json({
+          success: false,
+          message: "Token expired",
+        });
+      }
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token",
+      });
+    }
+
+    /* ===============================
+       3️⃣ CHECK BLACKLIST
+    =============================== */
     const blacklisted = await TokenBlacklist.findOne({ token });
 
     if (blacklisted) {
@@ -33,7 +65,9 @@ export async function protect(req, res, next) {
       });
     }
 
-    // ✅ 3. Fetch user
+    /* ===============================
+       4️⃣ FETCH USER (SOURCE OF TRUTH)
+    =============================== */
     const user = await User.findById(decoded.userId).select("-passwordHash");
 
     if (!user) {
@@ -43,6 +77,9 @@ export async function protect(req, res, next) {
       });
     }
 
+    /* ===============================
+       5️⃣ ATTACH CLEAN USER TO REQUEST
+    =============================== */
     req.user = {
       userId: user._id,
       role: Array.isArray(user.role) ? user.role : [user.role],
@@ -52,19 +89,13 @@ export async function protect(req, res, next) {
     };
 
     next();
-  } catch (err) {
-    console.error("JWT verification failed:", err.name, err.message);
 
-    if (err.name === "TokenExpiredError") {
-      return res.status(401).json({
-        success: false,
-        message: "Token expired",
-      });
-    }
+  } catch (error) {
+    console.error("Protect middleware error:", error);
 
-    return res.status(401).json({
+    return res.status(500).json({
       success: false,
-      message: "Invalid token",
+      message: "Server error",
     });
   }
 }
