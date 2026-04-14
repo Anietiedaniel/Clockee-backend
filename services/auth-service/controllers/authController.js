@@ -605,8 +605,6 @@ export async function forgotPassword(req, res) {
   }
 }
 
-import crypto from "crypto";
-
 
 export async function resetPassword(req, res) {
   try {
