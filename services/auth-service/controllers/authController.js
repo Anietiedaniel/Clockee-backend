@@ -2,7 +2,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import bcrypt from "bcryptjs";
-import mongoose from "mongoose";
+
 
 
 
@@ -606,7 +606,7 @@ export async function forgotPassword(req, res) {
 }
 
 import crypto from "crypto";
-import { User, hashPassword } from "@clockee/shared";
+
 
 export async function resetPassword(req, res) {
   try {
