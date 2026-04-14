@@ -19,7 +19,7 @@ router.get("/:id/pending-users", protect, authorizeAdmin, getPendingUsers);
 router.get("/institution/users", protect, authorizeAdmin, getAllUsers);
 
 // GET admins
-router.get("/institution/admins", protect, authorizeAdmin, getAllUsers);
+router.get("/institution/admins", protect, authorizeAdmin, getAllAdmins);
 
 router.get("/attendance/status", protect);
 
