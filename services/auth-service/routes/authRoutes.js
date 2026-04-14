@@ -7,13 +7,11 @@ import {
   loginUser,
   logoutUser,
   verifyToken,
-  getProfile,
   generateBackupCodes,
   useBackupCode,
   forgotPassword,
   resetPassword,
   registerWithInvite, 
-   updateProfile,
   registerViaPublicOnboardingLink,
   
   
@@ -45,9 +43,6 @@ router.post(
 
 router.post("/register/invite/:token", registerViaQrInvite);
 
-
-router.get("/profile", protect, getProfile);
-router.patch("/update" , protect, updateProfile);
 
 /* ========== BACKUP CODES ========== */
 

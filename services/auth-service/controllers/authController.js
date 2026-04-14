@@ -450,109 +450,6 @@ export async function verifyToken(req, res) {
   }
 }
 
-export async function getProfile(req, res, next) {
-  try {
-    const user = await User.findById(req.user.userId)
-      .select("name email role institutionId departmentOrUnit studentOrStaffId")
-      .populate("institutionId", "name type");
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    res.json({ success: true, user });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function updateProfile(req, res, next) {
-  try {
-    const userId = req.user.userId;
-
-    const allowedFields = [
-      "name",
-      "departmentOrUnit",
-      "studentOrStaffId"
-    ];
-
-    const updates = {};
-
-    // Only allow safe fields to be updated
-    allowedFields.forEach(field => {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
-      }
-    });
-
-    // Prevent empty update
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No valid fields to update."
-      });
-    }
-
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { $set: updates },
-      { new: true, runValidators: true }
-    ).select("name email role institutionId departmentOrUnit studentOrStaffId");
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found."
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Profile updated successfully.",
-      user
-    });
-
-  } catch (err) {
-    next(err);
-  }
-}
-
-// limited for now
-export const changeEmail = async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { newEmail } = req.body;
-
-    if (!newEmail) {
-      return res.status(400).json({ message: "New email is required." });
-    }
-
-    // Check if email already exists
-    const exists = await User.findOne({ email: newEmail.toLowerCase() });
-    if (exists) {
-      return res.status(409).json({ message: "Email already in use." });
-    }
-
-    // Update email
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { email: newEmail.toLowerCase() },
-      { new: true, runValidators: true }
-    ).select("name email");
-
-    res.json({
-      success: true,
-      message: "Email updated successfully.",
-      user,
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Email update failed." });
-  }
-};
-
 
 export async function generateBackupCodes(req, res, next) {
   try {
@@ -627,27 +524,46 @@ export async function useBackupCode(req, res, next) {
 
 export async function forgotPassword(req, res) {
   try {
-    const { email } = req.body;
-    const user = await User.findOne({ email });
+    let { email } = req.body;
 
-    if (!user) {
-      return res.status(404).json({
+    /* ================= VALIDATION ================= */
+    if (!email) {
+      return res.status(400).json({
         success: false,
-        message: "No account with that email",
+        message: "Email is required",
       });
     }
 
+    email = email.toLowerCase().trim();
+
+    const user = await User.findOne({ email });
+
+    /* ================= SECURITY (DON'T REVEAL EXISTENCE) ================= */
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: "If email exists, reset link has been sent",
+      });
+    }
+
+    /* ================= GENERATE TOKEN ================= */
     const resetToken = crypto.randomBytes(32).toString("hex");
-    user.resetPasswordToken = crypto
+
+    const hashedToken = crypto
       .createHash("sha256")
       .update(resetToken)
       .digest("hex");
 
-    user.resetPasswordExpires = Date.now() + 10 * 60 * 1000;
+    /* ================= SAVE TOKEN ================= */
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpires = Date.now() + 10 * 60 * 1000; // 10 min
+
     await user.save();
 
+    /* ================= RESET URL ================= */
     const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
+    /* ================= EMAIL TRANSPORT ================= */
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT),
@@ -658,18 +574,33 @@ export async function forgotPassword(req, res) {
       },
     });
 
+    /* ================= SEND EMAIL ================= */
     await transporter.sendMail({
       to: user.email,
       from: process.env.ALERT_EMAIL_FROM,
       subject: "Clockee Password Reset",
-      html: `<p>Reset your password:</p><a href="${resetURL}">Reset</a>`,
+      html: `
+        <h3>Password Reset Request</h3>
+        <p>Click below to reset your password. This link expires in 10 minutes.</p>
+        <a href="${resetURL}">Reset Password</a>
+      `,
     });
 
-    res.json({ success: true, message: "Reset link sent" });
+    return res.json({
+      success: true,
+      message: "If email exists, reset link has been sent",
+    });
+
   } catch (err) {
+    console.error(err);
+
     logger.error(err.message);
     sendAlert("auth-service", "error", err.message, "/forgot-password");
-    res.status(500).json({ success: false });
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 }
 
