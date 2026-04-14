@@ -11,7 +11,6 @@ export async function protect(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
 
-    // 🔒 Check token exists
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
         success: false,
@@ -21,23 +20,20 @@ export async function protect(req, res, next) {
 
     const token = authHeader.split(" ")[1];
 
-    if (!token) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+    // ✅ 1. VERIFY FIRST
+    const decoded = jwt.verify(token, JWT_SECRET);
 
-    // Check blacklist
+    // ✅ 2. THEN check blacklist
     const blacklisted = await TokenBlacklist.findOne({ token });
 
     if (blacklisted) {
       return res.status(401).json({
+        success: false,
         message: "Session expired. Please login again.",
       });
     }
 
-    // 🔒 Verify token
-    const decoded = jwt.verify(token, JWT_SECRET);
-
-    // 🔥 ALWAYS fetch user from DB (prevents missing fields like institutionId)
+    // ✅ 3. Fetch user
     const user = await User.findById(decoded.userId).select("-passwordHash");
 
     if (!user) {
@@ -47,25 +43,29 @@ export async function protect(req, res, next) {
       });
     }
 
-    // ✅ Normalize role to array (matches your schema)
-    const roles = Array.isArray(user.role) ? user.role : [user.role];
-
-    // ✅ Attach CLEAN and TRUSTED user object
     req.user = {
       userId: user._id,
-      role: roles,
+      role: Array.isArray(user.role) ? user.role : [user.role],
       institutionId: user.institutionId,
-      email: user.email, // optional but useful
-      name: user.name,   // optional
+      email: user.email,
+      name: user.name,
     };
 
     next();
   } catch (err) {
-    console.error("JWT verification failed:", err.message);
+    console.error("JWT verification failed:", err.name, err.message);
+
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({
+        success: false,
+        message: "Token expired",
+      });
+    }
 
     return res.status(401).json({
       success: false,
-      message: "Invalid or expired token",
+      message: "Invalid token",
     });
   }
 }
+
