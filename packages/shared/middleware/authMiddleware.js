@@ -3,6 +3,7 @@ dotenv.config();
 
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js"
+import TokenBlacklist from "../models/tokenBlackList.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
