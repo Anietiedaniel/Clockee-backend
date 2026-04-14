@@ -11,6 +11,8 @@ export const getMyProfile = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        phone: user.phone,
+        address: user.address,
         institutionId: user.institutionId,
         branchId: user.branchId,
         isActive: user.isActive,
