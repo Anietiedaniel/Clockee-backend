@@ -415,7 +415,7 @@ export const getAllAdmins = async (req, res) => {
     /* ================= ROLE FILTER ================= */
 
     if (roleFilter) {
-      const allowedRoles = ["staff", "student", "admin"];
+      const allowedRoles = ["super-admin", "admin"];
 
       if (!allowedRoles.includes(roleFilter)) {
         return res.status(400).json({
@@ -1150,7 +1150,6 @@ export const resendInvite = async (req, res) => {
   }
 };
 
-
 export const updateUserRemoteAccess = async (req, res) => {
   try {
     const {
@@ -1195,7 +1194,6 @@ export const updateUserRemoteAccess = async (req, res) => {
     });
   }
 };
-
 
 export const promoteToAdmin = async (req, res) => {
   try {
