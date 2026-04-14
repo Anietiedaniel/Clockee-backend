@@ -4,6 +4,7 @@ import fs from "fs";
 import bcrypt from "bcrypt";
 import csvParser from "csv-parser";
 import dotenv from "dotenv";
+import mongoose from "mongoose";
 dotenv.config();
 
 import { sendEmail } from "../../email-service/emailService.js";
