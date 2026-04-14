@@ -539,7 +539,7 @@ export async function forgotPassword(req, res) {
 
     const user = await User.findOne({ email });
 
-    /* ================= SECURITY (DON'T REVEAL EXISTENCE) ================= */
+    /* ================= SECURITY RESPONSE ================= */
     if (!user) {
       return res.status(200).json({
         success: true,
@@ -547,7 +547,7 @@ export async function forgotPassword(req, res) {
       });
     }
 
-    /* ================= GENERATE TOKEN ================= */
+    /* ================= GENERATE RESET TOKEN ================= */
     const resetToken = crypto.randomBytes(32).toString("hex");
 
     const hashedToken = crypto
@@ -555,24 +555,31 @@ export async function forgotPassword(req, res) {
       .update(resetToken)
       .digest("hex");
 
-    /* ================= SAVE TOKEN ================= */
     user.resetPasswordToken = hashedToken;
-    user.resetPasswordExpires = Date.now() + 10 * 60 * 1000; // 10 min
+    user.resetPasswordExpires = Date.now() + 10 * 60 * 1000;
 
     await user.save();
 
-    /* ================= RESET URL ================= */
     const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    /* ================= EMAIL TRANSPORT ================= */
+    /* ================= FIXED SMTP CONFIG ================= */
+    const port = Number(process.env.SMTP_PORT || 465);
+
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT),
-      secure: true,
+      port,
+      secure: port === 465, // ✅ FIX: automatic secure handling
       auth: {
         user: process.env.ALERT_EMAIL_FROM,
         pass: process.env.ALERT_EMAIL_PASS,
       },
+      connectionTimeout: 10000, // ✅ prevents hanging forever
+    });
+
+    /* ================= VERIFY SMTP BEFORE SENDING ================= */
+    await transporter.verify().catch((err) => {
+      console.error("SMTP VERIFY FAILED:", err.message);
+      throw new Error("Email service not available");
     });
 
     /* ================= SEND EMAIL ================= */
@@ -582,7 +589,7 @@ export async function forgotPassword(req, res) {
       subject: "Clockee Password Reset",
       html: `
         <h3>Password Reset Request</h3>
-        <p>Click below to reset your password. This link expires in 10 minutes.</p>
+        <p>This link expires in 10 minutes.</p>
         <a href="${resetURL}">Reset Password</a>
       `,
     });
@@ -593,18 +600,17 @@ export async function forgotPassword(req, res) {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("Forgot password error:", err.message);
 
     logger.error(err.message);
     sendAlert("auth-service", "error", err.message, "/forgot-password");
 
     return res.status(500).json({
       success: false,
-      message: err.message,
+      message: "Failed to send reset email",
     });
   }
 }
-
 
 export async function resetPassword(req, res) {
   try {
