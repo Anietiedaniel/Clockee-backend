@@ -11,611 +11,6 @@ import {
 } from "../utils/clock.helpers.js";
 
 
-//  export const clockAttendance = async (req, res) => {
-// //   try {
-// //     const {
-// //       actionType,
-// //       mode,
-// //       gps,
-// //       qrCode,
-// //       totp,
-// //       token,
-// //       backupCode,
-// //       overrideCode,
-// //     } = req.body;
-
-// //     const userId = req.user.userId || req.user.id;
-
-// //     const userRoles = Array.isArray(req.user.role)
-// //       ? req.user.role
-// //       : [req.user.role];
-
-// //     /* ===============================
-// //        1️⃣ BASIC VALIDATION
-// //     =============================== */
-
-// //     const allowedActions = ["clock-in", "clock-out"];
-// //     const allowedModes = [
-// //       "qr",
-// //       "totp",
-// //       "silent",
-// //       "backup_code",
-// //       "admin_override",
-// //     ];
-
-// //     if (!allowedActions.includes(actionType)) {
-// //       return res.status(400).json({
-// //         success: false,
-// //         message: "Invalid action type",
-// //       });
-// //     }
-
-// //     if (!allowedModes.includes(mode)) {
-// //       return res.status(400).json({
-// //         success: false,
-// //         message: "Invalid clocking mode",
-// //       });
-// //     }
-
-// //     /* ===============================
-// //        2️⃣ GPS VALIDATION
-// //     =============================== */
-
-// //     if (!gps || typeof gps.lat !== "number" || typeof gps.lng !== "number") {
-// //       return res.status(400).json({
-// //         success: false,
-// //         message: "Valid GPS location is required",
-// //       });
-// //     }
-
-// //     const { lat, lng } = gps;
-
-// //     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-// //       return res.status(400).json({
-// //         success: false,
-// //         message: "Invalid GPS coordinates",
-// //       });
-// //     }
-
-// //     /* ===============================
-// //        3️⃣ MODE VALIDATION
-// //     =============================== */
-
-// //     if (mode === "qr" && !qrCode)
-// //       return res.status(400).json({ success: false, message: "QR code required" });
-
-// //     if (mode === "totp" && !totp)
-// //       return res.status(400).json({ success: false, message: "TOTP required" });
-
-// //     if (mode === "silent" && !token)
-// //       return res.status(400).json({ success: false, message: "Token required" });
-
-// //     if (mode === "backup_code" && !backupCode)
-// //       return res.status(400).json({ success: false, message: "Backup code required" });
-
-// //     /* ===============================
-// //        4️⃣ ADMIN OVERRIDE
-// //     =============================== */
-
-// //     const isAdmin =
-// //       userRoles.includes("admin") || userRoles.includes("super_admin");
-
-// //     if (mode === "admin_override") {
-// //       if (!isAdmin) {
-// //         return res.status(403).json({
-// //           success: false,
-// //           message: "Not authorized",
-// //         });
-// //       }
-
-// //       if (!overrideCode || overrideCode !== process.env.ADMIN_OVERRIDE_SECRET) {
-// //         return res.status(403).json({
-// //           success: false,
-// //           message: "Invalid override code",
-// //         });
-// //       }
-// //     }
-
-// //     /* ===============================
-// //        5️⃣ FETCH USER
-// //     =============================== */
-
-// //     const user = await User.findById(userId);
-
-// //     if (!user || !user.isActive) {
-// //       return res.status(404).json({
-// //         success: false,
-// //         message: "User not found or inactive",
-// //       });
-// //     }
-
-// //     /* ===============================
-// //        6️⃣ SETTINGS
-// //     =============================== */
-
-// //     const institutionSetting = await InstitutionSetting.findOne({
-// //       institutionId: user.institutionId,
-// //       isActive: true,
-// //     });
-
-// //     const settings = {
-// //       allowRemoteClocking: false,
-// //       enforceGeofence: false,
-// //       gpsRadiusMeters: 100,
-// //       officeLocation: null,
-// //       timezone: "Africa/Lagos",
-// //       workStartTime: "08:00",
-// //       gracePeriodMinutes: 20,
-// //       clockingWindow: { earlyMinutes: 20, lateMinutes: 90 },
-// //       ...(institutionSetting ? institutionSetting.toObject() : {}),
-// //     };
-
-// //     /* ===============================
-// //        7️⃣ REMOTE POLICY
-// //     =============================== */
-
-// //     const REMOTE_TYPES = ["remote", "hybrid", "field"];
-// //     const isRemoteUser = REMOTE_TYPES.includes(user.clockMode);
-// //     const userAllowsRemote = user.remoteAccess?.allowed === true;
-
-// //     if (isRemoteUser && (!settings.allowRemoteClocking || !userAllowsRemote)) {
-// //       return res.status(403).json({
-// //         success: false,
-// //         message: "Remote clocking not permitted",
-// //       });
-// //     }
-
-// //     /* ===============================
-// //        8️⃣ DISTANCE + GEOFENCE
-// //     =============================== */
-
-// //     let distanceFromOffice = null;
-
-// //     if (settings.officeLocation?.coordinates?.length === 2) {
-// //       const [officeLng, officeLat] = settings.officeLocation.coordinates;
-
-// //       const toRad = (v) => (v * Math.PI) / 180;
-// //       const R = 6378137;
-
-// //       const dLat = toRad(lat - officeLat);
-// //       const dLng = toRad(lng - officeLng);
-
-// //       const a =
-// //         Math.sin(dLat / 2) ** 2 +
-// //         Math.cos(toRad(officeLat)) *
-// //           Math.cos(toRad(lat)) *
-// //           Math.sin(dLng / 2) ** 2;
-
-// //       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-// //       distanceFromOffice = R * c;
-
-// //       if (
-// //         !isRemoteUser &&
-// //         settings.enforceGeofence &&
-// //         mode !== "admin_override" &&
-// //         distanceFromOffice > settings.gpsRadiusMeters
-// //       ) {
-// //         return res.status(403).json({
-// //           success: false,
-// //           message: "Outside allowed location",
-// //           meta: {
-// //             distanceFromOffice: Math.round(distanceFromOffice),
-// //             allowedRadius: settings.gpsRadiusMeters,
-// //           },
-// //         });
-// //       }
-// //     }
-
-// //     /* ===============================
-// //        9️⃣ TIME + LATENESS ENGINE
-// //     =============================== */
-
-// //     const now = moment().tz(settings.timezone);
-
-// //     const [startHour, startMinute] = settings.workStartTime.split(":");
-
-// //     const expectedStart = moment()
-// //       .tz(settings.timezone)
-// //       .set({
-// //         hour: parseInt(startHour),
-// //         minute: parseInt(startMinute),
-// //         second: 0,
-// //         millisecond: 0,
-// //       });
-
-// //     const diffMinutes = now.diff(expectedStart, "minutes");
-
-// //     let clockInStatus = "on-time";
-
-// //     if (diffMinutes < -settings.clockingWindow.earlyMinutes) {
-// //       clockInStatus = "too-early";
-// //     } else if (diffMinutes < 0) {
-// //       clockInStatus = "early";
-// //     } else if (diffMinutes <= settings.gracePeriodMinutes) {
-// //       clockInStatus = "on-time";
-// //     } else if (diffMinutes <= settings.clockingWindow.lateMinutes) {
-// //       clockInStatus = "late";
-// //     } else {
-// //       clockInStatus = "very-late";
-// //     }
-
-// //     /* ===============================
-// //        🔟 DATE NORMALIZATION
-// //     =============================== */
-
-// //     const date = now.clone().startOf("day").toDate();
-
-// //     /* ===============================
-// //        11️⃣ SAVE
-// //     =============================== */
-
-// //     const attendance = await AttendanceLog.create({
-// //       userId,
-// //       institutionId: user.institutionId,
-
-// //       actionType,
-// //       mode,
-
-// //       gps: {
-// //         type: "Point",
-// //         coordinates: [lng, lat],
-// //       },
-
-// //       timestamp: now.toDate(),
-// //       date,
-
-// //       validationResult: "accepted",
-
-// //       status: "present",
-// //       clockInStatus,
-// //       minutesLate: diffMinutes > 0 ? diffMinutes : 0,
-
-// //       // ✅ NEW FIELD
-// //       distanceFromOffice: distanceFromOffice
-// //         ? Math.round(distanceFromOffice)
-// //         : null,
-
-// //       ipAddress: req.ip,
-// //       deviceInfo: req.headers["user-agent"],
-
-// //       ...(mode === "admin_override" && {
-// //         adminOverrideBy: userId,
-// //         overrideReason: "Admin override",
-// //       }),
-
-// //       ...(mode === "qr" && { qrCode }),
-// //       ...(mode === "totp" && { totp }),
-// //       ...(mode === "silent" && { token }),
-// //       ...(mode === "backup_code" && { backupCode }),
-// //     });
-
-// //     return res.status(201).json({
-// //       success: true,
-// //       message: `${actionType} successful`,
-// //       meta: {
-// //         clockInStatus,
-// //         minutesLate: diffMinutes > 0 ? diffMinutes : 0,
-// //         distanceFromOffice: distanceFromOffice
-// //           ? Math.round(distanceFromOffice)
-// //           : null,
-// //       },
-// //       data: attendance,
-// //     });
-
-// //   } catch (error) {
-// //     console.error("Clock attendance error:", error);
-
-// //     if (error.code === 11000) {
-// //       return res.status(400).json({
-// //         success: false,
-// //         message: "You already performed this action today",
-// //       });
-// //     }
-
-// //     return res.status(500).json({
-// //       success: false,
-// //       message: "Failed to process attendance",
-// //     });
-// //   }
-// // };
-
-
-
-
-// export const clockAttendance = async (req, res) => {
-//   try {
-//     const {
-//       actionType,
-//       mode,
-//       gps,
-//       qrCode,
-//       totp,
-//       token,
-//       backupCode,
-//       overrideCode,
-//     } = req.body;
-
-//     const userId = req.user.userId || req.user.id;
-
-//     const userRoles = Array.isArray(req.user.role)
-//       ? req.user.role
-//       : [req.user.role];
-
-//     /* ===============================
-//        BASIC VALIDATION
-//     =============================== */
-
-//     const allowedActions = ["clock-in", "clock-out"];
-//     const allowedModes = [
-//       "qr",
-//       "totp",
-//       "silent",
-//       "backup_code",
-//       "admin_override",
-//     ];
-
-//     if (!allowedActions.includes(actionType)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid action type",
-//       });
-//     }
-
-//     if (!allowedModes.includes(mode)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid clocking mode",
-//       });
-//     }
-
-//     /* ===============================
-//        GPS VALIDATION
-//     =============================== */
-
-//     if (!gps || typeof gps.lat !== "number" || typeof gps.lng !== "number") {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Valid GPS location is required",
-//       });
-//     }
-
-//     const { lat, lng } = gps;
-
-//     /* ===============================
-//        MODE VALIDATION
-//     =============================== */
-
-//     if (mode === "qr" && !qrCode)
-//       return res.status(400).json({ success: false, message: "QR code required" });
-
-//     if (mode === "totp" && !totp)
-//       return res.status(400).json({ success: false, message: "TOTP required" });
-
-//     if (mode === "silent" && !token)
-//       return res.status(400).json({ success: false, message: "Token required" });
-
-//     if (mode === "backup_code" && !backupCode)
-//       return res.status(400).json({ success: false, message: "Backup code required" });
-
-//     /* ===============================
-//         ADMIN OVERRIDE
-//     =============================== */
-
-//     const isAdmin =
-//       userRoles.includes("admin") || userRoles.includes("super_admin");
-
-//     if (mode === "admin_override") {
-//       if (!isAdmin) {
-//         return res.status(403).json({
-//           success: false,
-//           message: "Not authorized",
-//         });
-//       }
-
-//       if (!overrideCode || overrideCode !== process.env.ADMIN_OVERRIDE_SECRET) {
-//         return res.status(403).json({
-//           success: false,
-//           message: "Invalid override code",
-//         });
-//       }
-//     }
-
-//     /* ===============================
-//         FETCH USER
-//     =============================== */
-
-//     const user = await User.findById(userId);
-
-//     if (!user || !user.isActive) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "User not found or inactive",
-//       });
-//     }
-
-//     /* ===============================
-//         SETTINGS
-//     =============================== */
-
-//     const institutionSetting = await InstitutionSetting.findOne({
-//       institutionId: user.institutionId,
-//       isActive: true,
-//     });
-
-//     const settings = {
-//       allowRemoteClocking: false,
-//       enforceGeofence: false,
-//       gpsRadiusMeters: 100,
-//       officeLocation: null,
-//       timezone: "Africa/Lagos",
-//       workStartTime: "08:00",
-//       gracePeriodMinutes: 20,
-//       clockingWindow: { earlyMinutes: 20, lateMinutes: 90 },
-//       ...(institutionSetting ? institutionSetting.toObject() : {}),
-//     };
-
-//     /* ===============================
-//         GEO + DISTANCE
-//     =============================== */
-
-//     let distanceFromOffice = null;
-
-//     if (settings.officeLocation?.coordinates?.length === 2) {
-//       const [officeLng, officeLat] = settings.officeLocation.coordinates;
-
-//       const toRad = (v) => (v * Math.PI) / 180;
-//       const R = 6378137;
-
-//       const dLat = toRad(lat - officeLat);
-//       const dLng = toRad(lng - officeLng);
-
-//       const a =
-//         Math.sin(dLat / 2) ** 2 +
-//         Math.cos(toRad(officeLat)) *
-//           Math.cos(toRad(lat)) *
-//           Math.sin(dLng / 2) ** 2;
-
-//       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-//       distanceFromOffice = R * c;
-
-//       if (
-//         settings.enforceGeofence &&
-//         mode !== "admin_override" &&
-//         distanceFromOffice > settings.gpsRadiusMeters
-//       ) {
-//         return res.status(403).json({
-//           success: false,
-//           message: "Outside allowed location",
-//         });
-//       }
-//     }
-
-//     const now = moment().tz(settings.timezone);
-//     const date = now.clone().startOf("day").toDate();
-
-//     let attendance;
-
-//     /* ===============================
-//        🟢 CLOCK-IN
-//     =============================== */
-
-//     if (actionType === "clock-in") {
-//       const existing = await AttendanceLog.findOne({
-//         userId,
-//         institutionId: user.institutionId,
-//         actionType: "clock-in",
-//         date,
-//       });
-
-//       if (existing) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "You already clocked in today",
-//         });
-//       }
-
-//       const diffMinutes = now.diff(
-//         moment().tz(settings.timezone).set({
-//           hour: 8,
-//           minute: 0,
-//         }),
-//         "minutes"
-//       );
-
-//       attendance = await AttendanceLog.create({
-//         userId,
-//         institutionId: user.institutionId,
-//         actionType,
-//         mode,
-//         gps: { type: "Point", coordinates: [lng, lat] },
-//         timestamp: now.toDate(),
-//         date,
-//         status: "present",
-//         minutesLate: diffMinutes > 0 ? diffMinutes : 0,
-//         distanceFromOffice: distanceFromOffice
-//           ? Math.round(distanceFromOffice)
-//           : null,
-//       });
-
-//       return res.status(201).json({
-//         success: true,
-//         message: "Clock-in successful",
-//         data: attendance,
-//       });
-//     }
-
-//     /* ===============================
-//        🔴 CLOCK-OUT
-//     =============================== */
-
-//     if (actionType === "clock-out") {
-//       const lastClockIn = await AttendanceLog.findOne({
-//         userId,
-//         institutionId: user.institutionId,
-//         actionType: "clock-in",
-//         date,
-//       }).sort({ timestamp: -1 });
-
-//       if (!lastClockIn) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "No clock-in found for today",
-//         });
-//       }
-
-//       const existingOut = await AttendanceLog.findOne({
-//         userId,
-//         institutionId: user.institutionId,
-//         actionType: "clock-out",
-//         date,
-//       });
-
-//       if (existingOut) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "You already clocked out today",
-//         });
-//       }
-
-//       const workDurationMinutes = now.diff(
-//         moment(lastClockIn.timestamp),
-//         "minutes"
-//       );
-
-//       attendance = await AttendanceLog.create({
-//         userId,
-//         institutionId: user.institutionId,
-//         actionType,
-//         mode,
-//         gps: { type: "Point", coordinates: [lng, lat] },
-//         timestamp: now.toDate(),
-//         date,
-//         clockOutStatus: "completed",
-//         workDurationMinutes,
-//         distanceFromOffice: distanceFromOffice
-//           ? Math.round(distanceFromOffice)
-//           : null,
-//       });
-
-//       return res.status(201).json({
-//         success: true,
-//         message: "Clock-out successful",
-//         meta: {
-//           workDurationMinutes,
-//         },
-//         data: attendance,
-//       });
-//     }
-//   } catch (error) {
-//     console.error("Clock attendance error:", error);
-
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message,
-//     });
-//   }
-// };
-
 export const clockAttendance = async (req, res) => {
   try {
     const {
@@ -1155,8 +550,6 @@ export const getAttendanceHistory = async (req, res) => {
 };
 
 
-
-
 export const syncOfflineLogs = async (req, res) => {
   try {
     const { offlineLogs } = req.body;
@@ -1358,7 +751,8 @@ export const getRealTimeStatus = async (req, res) => {
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Fetch all active users in institution (include admins, filter by branch if provided)
+    /* ================= USERS ================= */
+
     const userFilter = { institutionId, isActive: true };
     if (branchId) userFilter.branchId = branchId;
 
@@ -1366,64 +760,109 @@ export const getRealTimeStatus = async (req, res) => {
       .select("name role studentOrStaffId departmentOrUnit")
       .lean();
 
-    // Fetch today's attendance logs
+    /* ================= LOGS ================= */
+
     const logs = await AttendanceLog.find({
       institutionId,
-      actionType: "clock-in",
       timestamp: { $gte: startOfDay, $lte: endOfDay },
-    })
-      .populate("userId", "name studentOrStaffId departmentOrUnit")
-      .lean();
+    }).lean();
 
-    // Map userId -> latest clock-in log
-    const logMap = new Map();
+    /* ================= MAP ================= */
+
+    const clockInMap = new Map();
+    const clockOutMap = new Map();
+
     logs.forEach(log => {
-      logMap.set(String(log.userId._id), {
-        status: log.status,
-        qrType: log.qrType || null,
-        isAdminOverride: log.mode === "admin_override" ? true : false,
-        timestamp: log.timestamp,
-      });
+      const userKey = String(log.userId);
+
+      if (log.actionType === "clock-in") {
+        clockInMap.set(userKey, log);
+      }
+
+      if (log.actionType === "clock-out") {
+        clockOutMap.set(userKey, log);
+      }
     });
+
+    /* ================= GROUPS ================= */
 
     const onTime = [];
     const late = [];
+    const veryLate = [];
+    const early = [];
     const absent = [];
+    const notClockedOut = [];
 
-    // Categorize each user
     for (const user of users) {
-      const log = logMap.get(String(user._id));
+      const uId = String(user._id);
 
-      if (!log) {
+      const clockIn = clockInMap.get(uId);
+      const clockOut = clockOutMap.get(uId);
+
+      if (!clockIn) {
         absent.push(user);
-      } else if (log.status === "on-time") {
-        onTime.push({ ...user, ...log });
-      } else if (log.status === "late") {
-        late.push({ ...user, ...log });
-      } else {
-        absent.push({ ...user, ...log });
+        continue;
+      }
+
+      const enriched = {
+        ...user,
+        clockInStatus: clockIn.clockInStatus,
+        clockOutStatus: clockOut?.clockOutStatus || null,
+        clockInTime: clockIn.timestamp,
+        clockOutTime: clockOut?.timestamp || null,
+      };
+
+      // GROUPING
+      switch (clockIn.clockInStatus) {
+        case "on-time":
+          onTime.push(enriched);
+          break;
+        case "late":
+          late.push(enriched);
+          break;
+        case "very-late":
+          veryLate.push(enriched);
+          break;
+        case "early":
+          early.push(enriched);
+          break;
+        default:
+          onTime.push(enriched);
+      }
+
+      if (clockIn && !clockOut) {
+        notClockedOut.push(enriched);
       }
     }
 
-    // Return summary
+    /* ================= RESPONSE ================= */
+
     return res.status(200).json({
       success: true,
       data: {
         summary: {
+          total: users.length,
           onTime: onTime.length,
           late: late.length,
+          veryLate: veryLate.length,
+          early: early.length,
           absent: absent.length,
-          total: users.length,
+          notClockedOut: notClockedOut.length,
         },
         details: {
           onTime,
           late,
+          veryLate,
+          early,
           absent,
+          notClockedOut,
         },
       },
     });
+
   } catch (error) {
     console.error("Realtime status error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch real-time status.",
@@ -1433,37 +872,66 @@ export const getRealTimeStatus = async (req, res) => {
 
 
 
+
 export const getDashboardSummary = async (req, res) => {
   try {
     const institutionId = req.user.institutionId;
 
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
+
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Fetch users & today's logs
-    const totalUsers = await User.countDocuments({ institutionId, isActive: true });
-    const pendingApprovals = await User.countDocuments({ institutionId, role: "pending" });
+    /* ================= USERS ================= */
 
-    const todaysLogs = await AttendanceLog.find({
+    const totalUsers = await User.countDocuments({
+      institutionId,
+      isActive: true,
+    });
+
+    const pendingApprovals = await User.countDocuments({
+      institutionId,
+      role: "pending",
+    });
+
+    /* ================= TODAY CLOCK-IN ================= */
+
+    const todaysClockIns = await AttendanceLog.find({
       institutionId,
       actionType: "clock-in",
       timestamp: { $gte: startOfDay, $lte: endOfDay },
-    }).select("status branchId mode qrType");
+    }).select("clockInStatus branchId mode qrType");
 
-    // Count on-time, late, and present (include admin_override logs)
-    const onTime = todaysLogs.filter(l => l.status === "on-time" || l.mode === "admin_override").length;
-    const late = todaysLogs.filter(l => l.status === "late").length;
-    const present = onTime + late;
+    const onTime = todaysClockIns.filter(l => l.clockInStatus === "on-time").length;
+    const early = todaysClockIns.filter(l => l.clockInStatus === "early").length;
+    const late = todaysClockIns.filter(l => l.clockInStatus === "late").length;
+    const veryLate = todaysClockIns.filter(l => l.clockInStatus === "very-late").length;
+
+    const present = todaysClockIns.length;
     const absent = totalUsers - present;
 
-    // QR / Admin override counts for today
-    const qrStatic = todaysLogs.filter(l => l.qrType === "static").length;
-    const qrDynamic = todaysLogs.filter(l => l.qrType === "dynamic").length;
-    const adminOverrides = todaysLogs.filter(l => l.mode === "admin_override").length;
+    /* ================= TODAY CLOCK-OUT ================= */
 
-    // Weekly trend with QR and admin override counts
+    const todaysClockOuts = await AttendanceLog.find({
+      institutionId,
+      actionType: "clock-out",
+      timestamp: { $gte: startOfDay, $lte: endOfDay },
+    }).select("clockOutStatus");
+
+    const completed = todaysClockOuts.filter(l => l.clockOutStatus === "completed").length;
+    const earlyExit = todaysClockOuts.filter(l => l.clockOutStatus === "early_exit").length;
+    const overtime = todaysClockOuts.filter(l => l.clockOutStatus === "overtime").length;
+    const underWork = todaysClockOuts.filter(l => l.clockOutStatus === "under_work").length;
+
+    /* ================= QR + ADMIN ================= */
+
+    const qrStatic = todaysClockIns.filter(l => l.qrType === "static").length;
+    const qrDynamic = todaysClockIns.filter(l => l.qrType === "dynamic").length;
+    const adminOverrides = todaysClockIns.filter(l => l.mode === "admin_override").length;
+
+    /* ================= WEEKLY TREND ================= */
+
     const today = new Date();
     const weeklyTrend = [];
 
@@ -1482,7 +950,9 @@ export const getDashboardSummary = async (req, res) => {
       }).select("mode qrType");
 
       const attendanceCount = dayLogs.length;
-      const rate = totalUsers ? ((attendanceCount / totalUsers) * 100).toFixed(1) : 0;
+      const rate = totalUsers
+        ? ((attendanceCount / totalUsers) * 100).toFixed(1)
+        : 0;
 
       const dayQrStatic = dayLogs.filter(l => l.qrType === "static").length;
       const dayQrDynamic = dayLogs.filter(l => l.qrType === "dynamic").length;
@@ -1497,16 +967,29 @@ export const getDashboardSummary = async (req, res) => {
       });
     }
 
-    // Top branches (by clock-in count today) including QR/admin stats
+    /* ================= TOP BRANCHES ================= */
+
     const topBranches = await AttendanceLog.aggregate([
-      { $match: { institutionId, actionType: "clock-in", timestamp: { $gte: startOfDay, $lte: endOfDay } } },
+      {
+        $match: {
+          institutionId,
+          actionType: "clock-in",
+          timestamp: { $gte: startOfDay, $lte: endOfDay },
+        },
+      },
       {
         $group: {
           _id: "$branchId",
           total: { $sum: 1 },
-          qrStatic: { $sum: { $cond: [{ $eq: ["$qrType", "static"] }, 1, 0] } },
-          qrDynamic: { $sum: { $cond: [{ $eq: ["$qrType", "dynamic"] }, 1, 0] } },
-          adminOverrides: { $sum: { $cond: [{ $eq: ["$mode", "admin_override"] }, 1, 0] } },
+          qrStatic: {
+            $sum: { $cond: [{ $eq: ["$qrType", "static"] }, 1, 0] },
+          },
+          qrDynamic: {
+            $sum: { $cond: [{ $eq: ["$qrType", "dynamic"] }, 1, 0] },
+          },
+          adminOverrides: {
+            $sum: { $cond: [{ $eq: ["$mode", "admin_override"] }, 1, 0] },
+          },
         },
       },
       { $sort: { total: -1 } },
@@ -1533,13 +1016,27 @@ export const getDashboardSummary = async (req, res) => {
       },
     ]);
 
-    // Build final summary
+    /* ================= FINAL RESPONSE ================= */
+
     const summary = {
       todaySummary: {
         totalUsers,
-        onTime,
-        late,
+        present,
         absent,
+
+        // CLOCK-IN
+        onTime,
+        early,
+        late,
+        veryLate,
+
+        // CLOCK-OUT
+        completed,
+        earlyExit,
+        overtime,
+        underWork,
+
+        // SYSTEM
         qrStatic,
         qrDynamic,
         adminOverrides,
@@ -1553,14 +1050,20 @@ export const getDashboardSummary = async (req, res) => {
       success: true,
       data: summary,
     });
+
   } catch (error) {
     console.error("Dashboard summary error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to generate dashboard summary",
     });
   }
 };
+
+//  Replace multiple .find() with MongoDB aggregation pipeline (1 query instead of many)
+//  Add caching (Redis)
+//  Add monthly + department analytics
 
 
 

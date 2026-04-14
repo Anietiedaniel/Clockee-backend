@@ -11,116 +11,6 @@ import { logAdminAction } from "../logs/auditLogger.js";
 const MAX_BULK_INVITES = 500;
 const INVITE_TTL_DAYS = 7;
 
-//   try {
-//     const {
-//       role: requesterRole,
-//       institutionId: adminInstitutionId,
-//       userId,
-//     } = req.user;
-
-//     // Only super_admin can pass a target institution
-//     const { targetInstitutionId } = req.body;
-
-//     const institutionId =
-//       requesterRole === "super_admin"
-//         ? targetInstitutionId
-//         : adminInstitutionId;
-
-//     if (!institutionId) {
-//       return res.status(400).json({
-//         message: "Institution ID is required",
-//       });
-//     }
-
-//     const token = crypto.randomBytes(32).toString("hex");
-
-//     const invite = await InstitutionInvite.findOneAndUpdate(
-//       { institutionId },
-//       {
-//         token,
-//         isActive: true,
-//         createdBy: userId,
-//       },
-//       { upsert: true, new: true }
-//     );
-
-//     res.status(200).json({
-//       message: "Public invite link generated",
-//       inviteLink: `${process.env.FRONTEND_URL}/register/public?token=${invite.token}`,
-//     });
-//   } catch (err) {
-//     console.error("Invite generation error:", err);
-//     res.status(500).json({ message: "Failed to generate invite" });
-//   }
-// };
-
-
-// export const disableInstitutionInvite = async (req, res) => {
-//   try {
-//     const { institutionId } = req.user;
-
-//     await InstitutionInvite.findOneAndUpdate(
-//       { institutionId },
-//       { isActive: false }
-//     );
-
-//     res.status(200).json({
-//       message: "Public invite disabled",
-//     });
-//   } catch (err) {
-//     res.status(500).json({ message: "Failed to disable invite" });
-//   }
-// };
-
-// export const createOrRotateInstitutionInvite = async (req, res) => {
-//   try {
-//     const {
-//       role: requesterRole,
-//       institutionId: adminInstitutionId,
-//       userId: adminId,
-//     } = req.user;
-
-//     const { targetInstitutionId } = req.body;
-
-
-//     // Institution resolution
-//     const institutionId =
-//       requesterRole === "super_admin"
-//         ? targetInstitutionId
-//         : adminInstitutionId;
-
-//     if (!institutionId) {
-//       return res.status(400).json({ message: "Institution ID is required" });
-//     }
-
-//     // Rotate token every call (security best practice)
-//     const token = crypto.randomBytes(32).toString("hex");
-
-//     const invite = await InviteToken.findOneAndUpdate(
-//       { institutionId },
-//       {
-//         token,
-//         isActive: true,
-//         createdBy: adminId,
-//         rotatedAt: new Date(),
-//       },
-//       {
-//         upsert: true,
-//         new: true,
-//         runValidators: true,
-//       }
-//     );
-
-//     res.status(200).json({
-//       message: "Public invite link generated",
-//       inviteLink: `${process.env.FRONTEND_URL}/register/public?token=${invite.token}`,
-//     });
-//   } catch (err) {
-//     console.error("Institution invite error:", err);
-//     res.status(500).json({ message: "Failed to generate invite" });
-//   }
-// };
-
 
 export const disableInstitutionInvite = async (req, res) => {
   try {
@@ -408,6 +298,7 @@ export const updateUserApproval = async (req, res) => {
   }
 };
 
+// get all users of a particular institution
 export const getAllUsers = async (req, res) => {
   try {
     const { role: requesterRoles, institutionId: adminInstitutionId } = req.user;
@@ -468,7 +359,7 @@ export const getAllUsers = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      institutionId: institutionId || "ALL",
+      institutionId: institutionId || "Parent Institution",
       count: users.length,
       data: users,
     });
@@ -483,6 +374,81 @@ export const getAllUsers = async (req, res) => {
   }
 };
 
+export const getAllAdmins = async (req, res) => {
+  try {
+    const { role: requesterRoles, institutionId: adminInstitutionId } = req.user;
+    const { id: targetInstitutionId, role: roleFilter } = req.query;
+
+    // Normalize requester roles
+    const requesterRoleArray = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
+
+    /* ================= RESOLVE INSTITUTION ================= */
+    let institutionId;
+
+    if (requesterRoleArray.includes("super_admin")) {
+      institutionId = targetInstitutionId || undefined;
+    } else if (requesterRoleArray.includes("admin")) {
+      institutionId = adminInstitutionId;
+    } else {
+      return res.status(403).json({
+        message: "Admin access required",
+      });
+    }
+
+    if (!institutionId && !requesterRoleArray.includes("super_admin")) {
+      return res.status(400).json({
+        message: "Institution ID is required",
+      });
+    }
+
+    /* ================= BUILD BASE FILTER ================= */
+
+    const filter = {
+      ...(institutionId && { institutionId }),
+
+      // Exclude invalid roles
+      role: { $nin: ["pending", "rejected"] },
+    };
+
+    /* ================= ROLE FILTER ================= */
+
+    if (roleFilter) {
+      const allowedRoles = ["staff", "student", "admin"];
+
+      if (!allowedRoles.includes(roleFilter)) {
+        return res.status(400).json({
+          message: "Invalid role filter",
+        });
+      }
+
+      // Replace role filter completely
+      filter.role = { $in: [roleFilter] };
+    }
+
+    /* ================= QUERY ================= */
+
+    const users = await User.find(filter)
+      .select("name email role departmentOrUnit isActive createdAt creatorName")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      institutionId: institutionId || "ALL",
+      count: users.length,
+      data: users,
+    });
+
+  } catch (err) {
+    console.error("Error fetching users:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
 
 export const deactivateUser = async (req, res) => {
   try {
@@ -845,7 +811,6 @@ export const registerWithTokenInvite = async (req, res) => {
   }
 };
 
-
 export const bulkInvite = async (req, res) => {
   const {
     role: requesterRole,
@@ -1076,7 +1041,6 @@ export const generatePublicOnboardingLink = async (req, res) => {
     });
   }
 };
-
 
 export const getInstitutionInvite = async (req, res) => {
   try {
