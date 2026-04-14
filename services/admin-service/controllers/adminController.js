@@ -469,7 +469,7 @@ export const getUserById = async (req, res) => {
 
     const isSuperAdmin = roles.includes("super_admin");
     const isAdmin = roles.includes("admin");
-    const isSelf = String(userId) === String(id); // ✅ FIXED
+    const isSelf = String(userId) === String(id);
 
     if (!isSuperAdmin && !isAdmin && !isSelf) {
       return res.status(403).json({
@@ -505,7 +505,7 @@ export const getUserById = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.mesage,
+      message: err.message, // ✅ FIXED
     });
   }
 };
