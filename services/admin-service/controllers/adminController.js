@@ -1127,7 +1127,7 @@ export const getInstitutionInvite = async (req, res) => {
     const invites = await InviteToken.find({
       institutionId,
       expiresAt: { $gt: new Date() },
-    }).select("email role expiresAt createdAt");
+    }).select("token email role expiresAt createdAt type");
 
     return res.status(200).json({
       success: true,
