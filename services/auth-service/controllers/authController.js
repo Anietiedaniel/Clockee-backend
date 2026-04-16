@@ -652,7 +652,8 @@ export async function resetPassword(req, res) {
     }
 
     /* ================= UPDATE PASSWORD ================= */
-    user.passwordHash = await hashPassword(password);
+    const salt = await bcrypt.genSalt(10);
+    user.passwordHash = await bcrypt.hash(password, salt);
 
     /* ================= CLEAR RESET FIELDS ================= */
     user.resetPasswordToken = undefined;
@@ -665,12 +666,10 @@ export async function resetPassword(req, res) {
       message: "Password reset successful",
     });
 
-  } catch (err) {
-    console.error("Reset password error:", err);
-
+  } catch (error) {
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: error.message,
     });
   }
 }
