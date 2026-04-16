@@ -24,7 +24,8 @@ router.get("/institution/user/:id", protect, authorizeAdmin, getUserById);
 // GET admins
 router.get("/institution/admins", protect, authorizeAdmin, getAllAdmins);
 
-router.get("/attendance/status", protect);
+
+router.get("/public/invite", getInstitutionInvite );
 
 router.post("/register/public-link",protect, authorizeAdmin, generatePublicOnboardingLink)
 
