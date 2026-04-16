@@ -25,7 +25,7 @@ router.get("/institution/user/:id", protect, authorizeAdmin, getUserById);
 router.get("/institution/admins", protect, authorizeAdmin, getAllAdmins);
 
 
-router.get("/public/invite", getInstitutionInvite );
+router.get("/public/invite",protect, getInstitutionInvite );
 
 router.post("/register/public-link",protect, authorizeAdmin, generatePublicOnboardingLink)
 
