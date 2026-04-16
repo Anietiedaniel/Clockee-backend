@@ -1089,6 +1089,7 @@ export const getDashboardSummary = async (req, res) => {
 //  Add caching (Redis)
 //  Add monthly + department analytics
 
+
 export const getStaffDashboardOverview = async (req, res) => {
   try {
     const userId = req.user.userId || req.user.id;
@@ -1113,6 +1114,7 @@ export const getStaffDashboardOverview = async (req, res) => {
     });
 
     const timezone = setting?.timezone || "Africa/Lagos";
+    const expectedDailyHours = setting?.expectedDailyHours || 8;
 
     const now = moment().tz(timezone);
     const todayStart = now.clone().startOf("day").toDate();
@@ -1127,7 +1129,7 @@ export const getStaffDashboardOverview = async (req, res) => {
     const clockIn = todayLogs.find((l) => l.actionType === "clock-in");
     const clockOut = todayLogs.find((l) => l.actionType === "clock-out");
 
-    /* ================= WORK TIMES ================= */
+    /* ================= WORK HOURS ================= */
 
     let totalWorkedToday = 0;
 
@@ -1140,17 +1142,17 @@ export const getStaffDashboardOverview = async (req, res) => {
 
     /* ================= CLOCK-IN STATUS ================= */
 
-    let clockInStatus = "on-time";
+    let clockInStatus = null;
     let minutesLate = 0;
 
-    if (clockIn?.minutesLate > 0) {
-      clockInStatus = "late";
-      minutesLate = clockIn.minutesLate;
+    if (clockIn) {
+      minutesLate = clockIn.minutesLate || 0;
+      clockInStatus = minutesLate > 0 ? "late" : "on-time";
     }
 
     /* ================= CLOCK-OUT STATUS ================= */
 
-    let clockOutStatus = "normal";
+    let clockOutStatus = null;
     let underWorked = false;
 
     if (clockOut && setting?.workEndTime) {
@@ -1163,24 +1165,27 @@ export const getStaffDashboardOverview = async (req, res) => {
       if (moment(clockOut.timestamp).isBefore(expectedEnd)) {
         underWorked = true;
         clockOutStatus = "early";
+      } else {
+        clockOutStatus = "normal";
       }
     }
 
-    /* ================= EXPECTED HOURS ================= */
+    /* ================= REMAINING HOURS ================= */
 
-    const expectedDailyHours = setting?.expectedDailyHours || 8;
+    let remainingHours = 0;
 
-    const remainingHours =
-      clockIn && !clockOut
-        ? Math.max(0, expectedDailyHours - totalWorkedToday)
-        : 0;
+    if (!clockIn) {
+      remainingHours = expectedDailyHours;
+    } else if (clockIn && !clockOut) {
+      remainingHours = Math.max(0, expectedDailyHours - totalWorkedToday);
+    }
 
     /* ================= WEEK RANGE ================= */
 
     const weekStart = now.clone().startOf("isoWeek").toDate();
     const weekEnd = now.clone().endOf("isoWeek").toDate();
 
-    const weekLogs = await AttendanceLog.find({
+    const weekClockOutLogs = await AttendanceLog.find({
       userId,
       timestamp: { $gte: weekStart, $lte: weekEnd },
       actionType: "clock-out",
@@ -1190,7 +1195,7 @@ export const getStaffDashboardOverview = async (req, res) => {
 
     const weeklyMap = {};
 
-    weekLogs.forEach((log) => {
+    weekClockOutLogs.forEach((log) => {
       const day = moment(log.timestamp)
         .tz(timezone)
         .format("ddd");
@@ -1210,12 +1215,12 @@ export const getStaffDashboardOverview = async (req, res) => {
     /* ================= SUMMARY ================= */
 
     const totalHoursWeek =
-      weekLogs.reduce(
+      weekClockOutLogs.reduce(
         (acc, log) => acc + (log.workDurationMinutes || 0),
         0
       ) / 60;
 
-    const presentDays = weekLogs.length;
+    const presentDays = weekClockOutLogs.length;
 
     const lateDays = await AttendanceLog.countDocuments({
       userId,
@@ -1250,7 +1255,7 @@ export const getStaffDashboardOverview = async (req, res) => {
           role: user.role,
         },
 
-        /* 🔥 TODAY STATUS (UPGRADED) */
+        /* ✅ CLEAN TODAY STATUS */
         todayStatus: {
           clockedIn: !!clockIn,
           clockInTime: clockIn ? clockIn.timestamp : null,
@@ -1268,7 +1273,7 @@ export const getStaffDashboardOverview = async (req, res) => {
           remainingHours: Number(remainingHours.toFixed(2)),
         },
 
-        /* 🔥 SUMMARY (UNCHANGED BUT IMPROVED) */
+        /* ✅ SUMMARY */
         summary: {
           attendanceRate,
           lateDays,
@@ -1282,7 +1287,7 @@ export const getStaffDashboardOverview = async (req, res) => {
         weeklyTrend,
 
         notifications: {
-          unread: 0, // plug your notification system later
+          unread: 0,
         },
       },
     });
