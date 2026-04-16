@@ -1157,7 +1157,6 @@ export const registerViaPublicOnboardingLink = async (req, res) => {
 
     const onboardingToken = await InviteToken.findOne({
       token,
-      isActive: true,
       expiresAt: { $gt: new Date() },
     });
 
