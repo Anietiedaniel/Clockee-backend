@@ -746,6 +746,7 @@ export const createInvite = async (req, res) => {
       institutionId,
       role: inviteRole, // now array
       creatorName,
+      type: "invite",
       createdBy: adminId,
       expiresAt: new Date(
         Date.now() + expiresInDays * 24 * 60 * 60 * 1000
