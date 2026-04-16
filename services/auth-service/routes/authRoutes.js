@@ -1,9 +1,6 @@
 
 import express from "express";
 import {
-  registerUser,
-  registerViaQrInvite,
-  registerVisitor,
   loginUser,
   logoutUser,
   verifyToken,
@@ -11,14 +8,12 @@ import {
   useBackupCode,
   forgotPassword,
   resetPassword,
-  registerWithInvite, 
-  registerViaPublicOnboardingLink,
+  
   
   
 } from "../controllers/authController.js";
 
-import { protect} from "@clockee/shared";
-import { User } from "@clockee/shared";
+import { protect, User} from "@clockee/shared";
 
 const router = express.Router();
 
@@ -27,21 +22,10 @@ router.get('/debug/users', async (req, res) => {
   const users = await User.find();
   res.json(users);
 });
-router.post("/register", registerUser);
-router.post("/visitor/register", registerVisitor);
+
 router.post("/login", loginUser); 
 router.post("/logout", logoutUser); 
 router.get("/verify-token", protect, verifyToken);
-router.post("/register/invite", registerWithInvite);
-// register via public invite when submit is hit
-router.post(
-  "/onboard/register",
-  registerViaPublicOnboardingLink
-);
-
-
-
-router.post("/register/invite/:token", registerViaQrInvite);
 
 
 /* ========== BACKUP CODES ========== */

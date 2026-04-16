@@ -1140,6 +1140,114 @@ export const getInstitutionInvite = async (req, res) => {
   }
 };
 
+export const registerViaPublicOnboardingLink = async (req, res) => {
+  try {
+    const { token } = req.query;
+    const {
+      email,
+      password,
+      address,
+      phone,
+      name,
+    } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ message: "Invalid onboarding link" });
+    }
+
+    const onboardingToken = await InviteToken.findOne({
+      token,
+      isActive: true,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!onboardingToken) {
+      return res.status(400).json({
+        message: "This onboarding link has expired or is invalid",
+      });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({
+        message: "User already exists",
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    await User.create({
+      name,
+      email,
+      passwordHash,
+      role: "pending", // 🔐 admin approval required
+      institutionId: onboardingToken.institutionId,
+
+      // profile info
+      address,
+      phone,
+
+      isActive: false,
+      createdBy: onboardingToken.createdBy, // admin who created link
+    });
+
+    res.status(201).json({
+      message:
+        "Registration successful. Await admin approval before login.",
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Registration failed" });
+  }
+};
+
+export const registerViaQrInvite = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { name, email,password, departmentOrUnit, studentOrStaffId } = req.body;
+
+    if (!name || !email) {
+      return res.status(400).json({ message: "Name and email are required" });
+    }
+
+    // Validate invite
+    const invite = await InviteToken.findOne({
+      token,
+      isActive: true,
+    });
+
+    if (!invite) {
+      return res.status(400).json({ message: "Invalid or expired invite link" });
+    }
+
+    //  Prevent duplicate users
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(400).json({ message: "Email already registered" });
+    }
+    
+    const passwordHash = await bcrypt.hash(password, 12);
+    //  Create user (PENDING)
+    await User.create({
+      name,
+      email: email.toLowerCase(),
+      passwordHash,
+      institutionId: invite.institutionId,
+      departmentOrUnit,
+      studentOrStaffId,
+      role: "pending",
+      isActive: true,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Registration submitted. Await admin approval.",
+    });
+  } catch (err) {
+    console.error("QR registration error:", err);
+    res.status(500).json({ message: "Registration failed" });
+  }
+};
+
 
 export const resendInvite = async (req, res) => {
   try {
