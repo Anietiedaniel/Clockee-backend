@@ -19,5 +19,5 @@ router.get("/history", protect, getAttendanceHistory);
 router.post("/sync", protect, syncOfflineLogs);
 router.get("/realtime/status", protect, isAdmin, getRealTimeStatus);
 router.get("/dashboard/summary", protect, isAdmin, getDashboardSummary);
-router.get("/staff/summary")
+router.get("/staff/summary",protect,getStaffDashboardOverview)
 export default router;
