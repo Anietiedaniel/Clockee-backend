@@ -664,7 +664,7 @@ export const createInvite = async (req, res) => {
       name: creatorName,
     } = req.user;
 
-    let { email, role: inviteRole } = req.body;
+    let { email, role: inviteRole,type} = req.body;
     const { institutionId: targetInstitutionId } = req.query;
 
     const expiresInDays = 7;
@@ -746,7 +746,7 @@ export const createInvite = async (req, res) => {
       institutionId,
       role: inviteRole, // now array
       creatorName,
-      type: "invite",
+      type,
       createdBy: adminId,
       expiresAt: new Date(
         Date.now() + expiresInDays * 24 * 60 * 60 * 1000
