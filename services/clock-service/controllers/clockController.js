@@ -1089,6 +1089,212 @@ export const getDashboardSummary = async (req, res) => {
 //  Add caching (Redis)
 //  Add monthly + department analytics
 
+export const getStaffDashboardOverview = async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user.id;
 
+    /* ================= FETCH USER ================= */
+
+    const user = await User.findById(userId).select(
+      "name avatar role institutionId"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    /* ================= SETTINGS ================= */
+
+    const setting = await InstitutionSetting.findOne({
+      institutionId: user.institutionId,
+    });
+
+    const timezone = setting?.timezone || "Africa/Lagos";
+
+    const now = moment().tz(timezone);
+    const todayStart = now.clone().startOf("day").toDate();
+
+    /* ================= TODAY LOGS ================= */
+
+    const todayLogs = await AttendanceLog.find({
+      userId,
+      date: todayStart,
+    }).sort({ timestamp: 1 });
+
+    const clockIn = todayLogs.find((l) => l.actionType === "clock-in");
+    const clockOut = todayLogs.find((l) => l.actionType === "clock-out");
+
+    /* ================= WORK TIMES ================= */
+
+    let totalWorkedToday = 0;
+
+    if (clockIn && clockOut) {
+      totalWorkedToday = (clockOut.workDurationMinutes || 0) / 60;
+    } else if (clockIn && !clockOut) {
+      totalWorkedToday =
+        now.diff(moment(clockIn.timestamp), "minutes") / 60;
+    }
+
+    /* ================= CLOCK-IN STATUS ================= */
+
+    let clockInStatus = "on-time";
+    let minutesLate = 0;
+
+    if (clockIn?.minutesLate > 0) {
+      clockInStatus = "late";
+      minutesLate = clockIn.minutesLate;
+    }
+
+    /* ================= CLOCK-OUT STATUS ================= */
+
+    let clockOutStatus = "normal";
+    let underWorked = false;
+
+    if (clockOut && setting?.workEndTime) {
+      const [endHour, endMin] = setting.workEndTime.split(":");
+
+      const expectedEnd = moment(clockOut.timestamp)
+        .tz(timezone)
+        .set({ hour: endHour, minute: endMin });
+
+      if (moment(clockOut.timestamp).isBefore(expectedEnd)) {
+        underWorked = true;
+        clockOutStatus = "early";
+      }
+    }
+
+    /* ================= EXPECTED HOURS ================= */
+
+    const expectedDailyHours = setting?.expectedDailyHours || 8;
+
+    const remainingHours =
+      clockIn && !clockOut
+        ? Math.max(0, expectedDailyHours - totalWorkedToday)
+        : 0;
+
+    /* ================= WEEK RANGE ================= */
+
+    const weekStart = now.clone().startOf("isoWeek").toDate();
+    const weekEnd = now.clone().endOf("isoWeek").toDate();
+
+    const weekLogs = await AttendanceLog.find({
+      userId,
+      timestamp: { $gte: weekStart, $lte: weekEnd },
+      actionType: "clock-out",
+    });
+
+    /* ================= WEEKLY TREND ================= */
+
+    const weeklyMap = {};
+
+    weekLogs.forEach((log) => {
+      const day = moment(log.timestamp)
+        .tz(timezone)
+        .format("ddd");
+
+      const hours = (log.workDurationMinutes || 0) / 60;
+
+      weeklyMap[day] = (weeklyMap[day] || 0) + hours;
+    });
+
+    const weeklyTrend = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+      .map((day) => ({
+        day,
+        hours: Number((weeklyMap[day] || 0).toFixed(2)),
+      }))
+      .filter((d) => d.hours > 0);
+
+    /* ================= SUMMARY ================= */
+
+    const totalHoursWeek =
+      weekLogs.reduce(
+        (acc, log) => acc + (log.workDurationMinutes || 0),
+        0
+      ) / 60;
+
+    const presentDays = weekLogs.length;
+
+    const lateDays = await AttendanceLog.countDocuments({
+      userId,
+      timestamp: { $gte: weekStart, $lte: weekEnd },
+      minutesLate: { $gt: 0 },
+      actionType: "clock-in",
+    });
+
+    const workingDaysCount = setting?.workingDays?.length || 5;
+
+    const absentDays = Math.max(0, workingDaysCount - presentDays);
+
+    const attendanceRate =
+      workingDaysCount > 0
+        ? Math.round((presentDays / workingDaysCount) * 100)
+        : 0;
+
+    const overtimeHours =
+      totalHoursWeek > expectedDailyHours * workingDaysCount
+        ? totalHoursWeek - expectedDailyHours * workingDaysCount
+        : 0;
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          _id: user._id,
+          name: user.name,
+          avatar: user.avatar || null,
+          role: user.role,
+        },
+
+        /* 🔥 TODAY STATUS (UPGRADED) */
+        todayStatus: {
+          clockedIn: !!clockIn,
+          clockInTime: clockIn ? clockIn.timestamp : null,
+          clockInStatus,
+          minutesLate,
+
+          clockedOut: !!clockOut,
+          clockOutTime: clockOut ? clockOut.timestamp : null,
+          clockOutStatus,
+
+          underWorked,
+
+          totalWorkedToday: Number(totalWorkedToday.toFixed(2)),
+          expectedDailyHours,
+          remainingHours: Number(remainingHours.toFixed(2)),
+        },
+
+        /* 🔥 SUMMARY (UNCHANGED BUT IMPROVED) */
+        summary: {
+          attendanceRate,
+          lateDays,
+          absentDays,
+          overtimeHours: Number(overtimeHours.toFixed(2)),
+          totalHoursWeek: Number(totalHoursWeek.toFixed(2)),
+          presentDays,
+          totalWorkingDays: workingDaysCount,
+        },
+
+        weeklyTrend,
+
+        notifications: {
+          unread: 0, // plug your notification system later
+        },
+      },
+    });
+
+  } catch (error) {
+    console.error("Dashboard error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load dashboard",
+    });
+  }
+};
 
 
