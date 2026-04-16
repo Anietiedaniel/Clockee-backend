@@ -1303,3 +1303,110 @@ export const getStaffDashboardOverview = async (req, res) => {
 };
 
 
+export const getUserWorkSchedule = async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user.id;
+
+    /* ================= USER ================= */
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    /* ================= SETTINGS ================= */
+
+    const settings = await InstitutionSetting.findOne({
+      institutionId: user.institutionId,
+    });
+
+    const timezone = settings?.timezone || "Africa/Lagos";
+    const now = moment().tz(timezone);
+
+    const todayStart = now.clone().startOf("day").toDate();
+
+    /* ================= TODAY LOGS ================= */
+
+    const logs = await AttendanceLog.find({
+      userId,
+      date: todayStart,
+    }).sort({ timestamp: 1 });
+
+    const clockIn = logs.find((l) => l.actionType === "clock-in");
+    const clockOut = logs.find((l) => l.actionType === "clock-out");
+
+    /* ================= DEFAULT SCHEDULE ================= */
+
+    const defaultStartTime = settings?.workStartTime || "08:00";
+    const defaultEndTime = settings?.workEndTime || "17:00";
+
+    /* ================= ACTUAL TIMES ================= */
+
+    const actualStartTime = clockIn
+      ? moment(clockIn.timestamp).tz(timezone).format("HH:mm")
+      : null;
+
+    const actualEndTime = clockOut
+      ? moment(clockOut.timestamp).tz(timezone).format("HH:mm")
+      : null;
+
+    /* ================= STATUS ================= */
+
+    let startStatus = null;
+    let endStatus = null;
+
+    if (clockIn) {
+      startStatus =
+        clockIn.minutesLate > 0 ? "late" : "on-time";
+    }
+
+    if (clockOut) {
+      const expectedEnd = moment(clockOut.timestamp)
+        .tz(timezone)
+        .set({
+          hour: defaultEndTime.split(":")[0],
+          minute: defaultEndTime.split(":")[1],
+        });
+
+      endStatus = moment(clockOut.timestamp).isBefore(expectedEnd)
+        ? "early"
+        : "completed";
+    }
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        userId: user._id,
+
+        schedule: {
+          expectedStartTime: defaultStartTime,
+          expectedEndTime: defaultEndTime,
+
+          actualStartTime,
+          actualEndTime,
+
+          startStatus,
+          endStatus,
+        },
+
+        summary: {
+          isClockedIn: !!clockIn,
+          isClockedOut: !!clockOut,
+        },
+      },
+    });
+
+  } catch (error) {
+    console.error("Work schedule error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch work schedule",
+    });
+  }
+};
