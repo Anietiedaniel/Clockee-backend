@@ -11,7 +11,7 @@ import { sendEmail } from "../../email-service/emailService.js";
 import { logAdminAction } from "../logs/auditLogger.js";
 const MAX_BULK_INVITES = 500;
 const INVITE_TTL_DAYS = 7;
-const ALLOWED_ROLES = ["staff", "student"];
+const ALLOWED_ROLES = ["staff", "student" ,"admin"];
 
 
 
@@ -906,11 +906,20 @@ export const bulkInvite = async (req, res) => {
   const results = [];
 
   try {
-    // ✅ Read CSV
+    // ✅ Read CSV (FIXED parser)
     await new Promise((resolve, reject) => {
       fs.createReadStream(req.file.path)
-        .pipe(csvParser())
-        .on("data", (row) => rows.push(row))
+        .pipe(
+          csvParser({
+            separator: ",",
+            mapHeaders: ({ header }) =>
+              header.trim().replace(/^\uFEFF/, ""), // 🔥 removes BOM
+          })
+        )
+        .on("data", (row) => {
+          console.log("ROW DEBUG:", row); // 🔍 remove later
+          rows.push(row);
+        })
         .on("end", resolve)
         .on("error", reject);
     });
@@ -929,12 +938,24 @@ export const bulkInvite = async (req, res) => {
 
     for (const row of rows) {
       try {
-        if (!row.email || !row.role) {
+        let email = row.email;
+        let role = row.role;
+
+        // 🔥 Fallback: handle badly parsed rows
+        if (!email && Object.keys(row).length === 1) {
+          const raw = Object.values(row)[0];
+          const parts = raw.split(",");
+          email = parts[0];
+          role = parts[1];
+        }
+
+        // ✅ Validate again after fallback
+        if (!email?.trim() || !role?.trim()) {
           throw new Error("Missing email or role");
         }
 
-        const email = row.email.toLowerCase().trim();
-        const role = row.role.toLowerCase().trim();
+        email = email.toLowerCase().trim();
+        role = role.toLowerCase().trim();
 
         if (!ALLOWED_ROLES.includes(role)) {
           throw new Error("Invalid role");
@@ -960,9 +981,9 @@ export const bulkInvite = async (req, res) => {
         await InviteToken.create({
           token,
           email,
-          role: [role], // ✅ FIXED (array)
+          role: [role],
           institutionId,
-          type: "direct", // ✅ REQUIRED FIELD ADDED
+          type: "direct",
           departmentOrUnit: row.departmentOrUnit || null,
           studentOrStaffId: row.studentOrStaffId || null,
           creatorName,
@@ -999,11 +1020,10 @@ export const bulkInvite = async (req, res) => {
     return res.status(200).json({
       message: "Bulk invites processed",
       total: rows.length,
-      successCount: results.filter(r => r.status === "success").length,
-      failedCount: results.filter(r => r.status === "failed").length,
+      successCount: results.filter((r) => r.status === "success").length,
+      failedCount: results.filter((r) => r.status === "failed").length,
       results,
     });
-
   } catch (err) {
     console.error("Bulk invite error:", err);
     return res.status(500).json({
@@ -1015,6 +1035,7 @@ export const bulkInvite = async (req, res) => {
     }
   }
 };
+
 
 // generate onboard link/we can auto email later
 
