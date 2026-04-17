@@ -4,6 +4,7 @@ import morgan from "morgan";
 import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
+import { sendEmail } from "../email-service/emailService.js";
 
 import {connectDB} from "@clockee/shared";
 import institutionRoutes from "./routes/institutionRoutes.js";
@@ -48,6 +49,21 @@ async function start() {
       timestamp: new Date().toISOString(),
     })
   );
+
+  app.get("/test-email", async (req, res) => {
+  try {
+    await sendEmail({
+      to: "cieosinstitute@gmail.com", // replace with your email
+      subject: "Test Email",
+      html: "<h1>Test successful</h1>",
+    });
+
+    res.send("Email sent");
+  } catch (err) {
+    console.error(err);
+    res.status(500).send(err.message);
+  }
+});
 
 
  
