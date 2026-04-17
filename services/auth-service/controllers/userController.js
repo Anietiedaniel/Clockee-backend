@@ -132,12 +132,12 @@ export const changePassword = async (req, res) => {
 
 export const updateMyProfile = async (req, res) => {
   try {
-    const { name, phoneNumber, address } = req.body;
+    const { name, phone, address } = req.body;
 
     const updates = {};
 
     if (name !== undefined) updates.name = name;
-    if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber;
+    if (phone !== undefined) updates.phone = phone;
     if (address !== undefined) updates.address = address;
 
     const user = await User.findByIdAndUpdate(
