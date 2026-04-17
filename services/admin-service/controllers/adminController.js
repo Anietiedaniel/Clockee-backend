@@ -1434,16 +1434,35 @@ export const resendInvite = async (req, res) => {
 
 export const updateUserRemoteAccess = async (req, res) => {
   try {
-    const { role, institutionId: adminInstitutionId, _id } = req.user;
+    const {
+      role,
+      institutionId: adminInstitutionId,
+      userId: adminId,
+    } = req.user;
+
     const { institutionId: targetInstitutionId, allowed } = req.body;
+    const targetUserId = req.params.id;
+
+    /* ================= ROLE CHECK ================= */
 
     const roles = Array.isArray(role) ? role : [role];
+
     const isSuperAdmin = roles.includes("super_admin");
     const isAdmin = roles.includes("admin");
 
     if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
+        success: false,
         message: "Not authorized",
+      });
+    }
+
+    /* ================= VALIDATION ================= */
+
+    if (typeof allowed !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "allowed must be boolean",
       });
     }
 
@@ -1453,45 +1472,61 @@ export const updateUserRemoteAccess = async (req, res) => {
 
     if (!institutionId) {
       return res.status(400).json({
+        success: false,
         message: "Institution ID is required",
       });
     }
 
+    /* ================= FETCH USER ================= */
+
     const user = await User.findOne({
-      _id: req.params.id,
+      _id: targetUserId,
       institutionId,
     });
 
     if (!user) {
       return res.status(404).json({
+        success: false,
         message: "User not found in this institution",
       });
     }
 
-    if (typeof allowed !== "boolean") {
-      return res.status(400).json({
-        message: "allowed must be boolean",
-      });
+    /* ================= INIT OBJECT (IMPORTANT FIX) ================= */
+
+    if (!user.remoteAccess) {
+      user.remoteAccess = {};
     }
 
+    /* ================= UPDATE ================= */
+
     user.remoteAccess.allowed = allowed;
-    user.remoteAccess.approvedBy = _id;
+    user.remoteAccess.approvedBy = adminId;
     user.remoteAccess.approvedAt = new Date();
 
     await user.save();
 
-    return res.json({
-      message: "User remote access updated successfully",
-      user,
+    /* ================= RESPONSE (SAFE) ================= */
+
+    return res.status(200).json({
+      success: true,
+      message: `Remote access ${allowed ? "enabled" : "disabled"} successfully`,
+      data: {
+        userId: user._id,
+        name: user.name,
+        remoteAccess: user.remoteAccess,
+      },
     });
 
   } catch (err) {
+    console.error("Remote access error:", err);
+
     return res.status(500).json({
+      success: false,
       message: "Failed to update user remote access",
-      error: err.message,
     });
   }
 };
+
 
 export const promoteToAdmin = async (req, res) => {
   try {
