@@ -50,18 +50,30 @@ async function start() {
     })
   );
 
-  app.get("/test-email", async (req, res) => {
+  app.get("/debug-env", (req, res) => {
+  res.json({
+    EMAIL: process.env.ALERT_EMAIL_FROM,
+    PASS_EXISTS: !!process.env.ALERT_EMAIL_PASS,
+    SMTP_HOST: process.env.SMTP_HOST,
+    SMTP_PORT: process.env.SMTP_PORT,
+  });
+});
+
+app.get("/test-email", async (req, res) => {
   try {
-    await sendEmail({
-      to: "cieosinstitute@gmail.com", // replace with your email
+    const result = await sendEmail({
+      to: "your@email.com",
       subject: "Test Email",
-      html: "<h1>Test successful</h1>",
+      html: "<h1>Test</h1>",
     });
 
-    res.send("Email sent");
+    res.json({ success: true, result });
   } catch (err) {
-    console.error(err);
-    res.status(500).send(err.message);
+    res.json({
+      success: false,
+      error: err.message,
+      stack: err.stack, // 👈 add this temporarily
+    });
   }
 });
 
