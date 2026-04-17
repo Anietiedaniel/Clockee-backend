@@ -62,7 +62,7 @@ async function start() {
 app.get("/test-email", async (req, res) => {
   try {
     const result = await sendEmail({
-      to: "your@email.com",
+      to: "cieosinstitute@email.com",
       subject: "Test Email",
       html: "<h1>Test</h1>",
     });
