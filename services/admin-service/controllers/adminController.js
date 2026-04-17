@@ -1488,7 +1488,7 @@ export const updateUserRemoteAccess = async (req, res) => {
     /* ================= FETCH USER ================= */
 
     const user = await User.findOne({
-      _id: targetUserId,
+      userId: targetUserId,
       institutionId,
     });
 
