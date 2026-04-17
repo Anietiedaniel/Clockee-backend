@@ -376,7 +376,6 @@ export const getAllUsers = async (req, res) => {
     });
   }
 };
-
 export const getAllAdmins = async (req, res) => {
   try {
     const {
@@ -452,7 +451,6 @@ export const getAllAdmins = async (req, res) => {
     });
   }
 };
-
 // admin and supper admin lookup
 export const getUserById = async (req, res) => {
   try {
@@ -608,7 +606,6 @@ export const reactivateUser = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
 export const rejectUser = async (req, res) => {
   try {
    const { role: requesterRole, institutionId: adminInstitutionId } = req.user;
@@ -1253,48 +1250,80 @@ export const registerViaPublicOnboardingLink = async (req, res) => {
 export const registerViaQrInvite = async (req, res) => {
   try {
     const { token } = req.params;
-    const { name, email,password, departmentOrUnit, studentOrStaffId } = req.body;
+    const {
+      name,
+      email,
+      password,
+      departmentOrUnit,
+      studentOrStaffId,
+    } = req.body;
 
-    if (!name || !email) {
-      return res.status(400).json({ message: "Name and email are required" });
+    // ✅ Basic validation
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "Name, email and password are required",
+      });
     }
 
-    // Validate invite
+    const normalizedEmail = email.toLowerCase();
+
+    // ✅ Validate invite (including expiry)
     const invite = await InviteToken.findOne({
       token,
       isActive: true,
+      expiresAt: { $gt: new Date() },
     });
 
     if (!invite) {
-      return res.status(400).json({ message: "Invalid or expired invite link" });
+      return res.status(400).json({
+        message: "Invalid or expired invite link",
+      });
     }
 
-    //  Prevent duplicate users
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
-    if (existingUser) {
-      return res.status(400).json({ message: "Email already registered" });
+    // ✅ Ensure invite email matches
+    if (invite.email !== normalizedEmail) {
+      return res.status(400).json({
+        message: "This invite is not assigned to this email",
+      });
     }
-    
+
+    // ✅ Prevent duplicate users
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(400).json({
+        message: "Email already registered",
+      });
+    }
+
+    // ✅ Hash password
     const passwordHash = await bcrypt.hash(password, 12);
-    //  Create user (PENDING)
-    await User.create({
+
+    // ✅ Create user (pending approval BUT store roles)
+    const newUser = await User.create({
       name,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       passwordHash,
       institutionId: invite.institutionId,
       departmentOrUnit,
       studentOrStaffId,
-      role: "pending",
+      role: ["pending"], // 👈 still pending
+      invitedRoles: invite.role, // 👈 actual roles stored here (ARRAY)
       isActive: true,
     });
 
-    res.status(201).json({
+    // ✅ Deactivate invite (one-time use)
+    invite.isActive = false;
+    await invite.save();
+
+    return res.status(201).json({
       success: true,
       message: "Registration submitted. Await admin approval.",
     });
   } catch (err) {
     console.error("QR registration error:", err);
-    res.status(500).json({ message: "Registration failed" });
+    return res.status(500).json({
+      message: "Registration failed",
+    });
   }
 };
 
