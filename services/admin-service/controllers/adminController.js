@@ -977,8 +977,8 @@ export const bulkInvite = async (req, res) => {
           expiresAt: { $gt: new Date() },
         });
 
-        if (existingInvite) {
-          throw new Error("Active invite already exists");
+       if (existingInvite) {
+          await InviteToken.deleteOne({ _id: existingInvite._id });
         }
 
         const token = crypto.randomBytes(32).toString("hex");
