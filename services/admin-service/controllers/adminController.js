@@ -1466,7 +1466,6 @@ export const updateUserRemoteAccess = async (req, res) => {
       });
     }
 
-    // 🔥 IMPORTANT: super admin must provide institutionId
     if (isSuperAdmin && !targetInstitutionId) {
       return res.status(400).json({
         success: false,
@@ -1488,7 +1487,7 @@ export const updateUserRemoteAccess = async (req, res) => {
     /* ================= FETCH USER ================= */
 
     const user = await User.findOne({
-      userId: targetUserId,
+      _id: targetUserId,   // ✅ FIXED HERE
       institutionId,
     });
 
@@ -1548,6 +1547,7 @@ export const updateUserRemoteAccess = async (req, res) => {
     });
   }
 };
+
 
 
 
