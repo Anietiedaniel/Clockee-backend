@@ -11,6 +11,8 @@ import { sendEmail } from "../../email-service/emailService.js";
 import { logAdminAction } from "../logs/auditLogger.js";
 const MAX_BULK_INVITES = 500;
 const INVITE_TTL_DAYS = 7;
+const ALLOWED_ROLES = ["staff", "student"];
+
 
 
 export const disableInstitutionInvite = async (req, res) => {
@@ -904,6 +906,7 @@ export const bulkInvite = async (req, res) => {
   const results = [];
 
   try {
+    // ✅ Read CSV
     await new Promise((resolve, reject) => {
       fs.createReadStream(req.file.path)
         .pipe(csvParser())
@@ -911,6 +914,12 @@ export const bulkInvite = async (req, res) => {
         .on("end", resolve)
         .on("error", reject);
     });
+
+    if (rows.length === 0) {
+      return res.status(400).json({
+        message: "CSV file is empty",
+      });
+    }
 
     if (rows.length > MAX_BULK_INVITES) {
       return res.status(400).json({
@@ -931,23 +940,29 @@ export const bulkInvite = async (req, res) => {
           throw new Error("Invalid role");
         }
 
+        // Check user already exists
         const existingUser = await User.findOne({ email });
         if (existingUser) throw new Error("User already exists");
 
+        // Check active invite exists
         const existingInvite = await InviteToken.findOne({
           email,
           institutionId,
           expiresAt: { $gt: new Date() },
         });
-        if (existingInvite) throw new Error("Active invite already exists");
+
+        if (existingInvite) {
+          throw new Error("Active invite already exists");
+        }
 
         const token = crypto.randomBytes(32).toString("hex");
 
         await InviteToken.create({
           token,
           email,
-          role,
+          role: [role], // ✅ FIXED (array)
           institutionId,
+          type: "direct", // ✅ REQUIRED FIELD ADDED
           departmentOrUnit: row.departmentOrUnit || null,
           studentOrStaffId: row.studentOrStaffId || null,
           creatorName,
@@ -988,6 +1003,7 @@ export const bulkInvite = async (req, res) => {
       failedCount: results.filter(r => r.status === "failed").length,
       results,
     });
+
   } catch (err) {
     console.error("Bulk invite error:", err);
     return res.status(500).json({
@@ -1250,69 +1266,101 @@ export const registerViaQrInvite = async (req, res) => {
 
 export const resendInvite = async (req, res) => {
   try {
-    const {
-      role: requesterRole,
-      institutionId: adminInstitutionId,
-    } = req.user;
+    const requesterRoles = Array.isArray(req.user.role)
+      ? req.user.role
+      : [req.user.role];
 
+    const isSuperAdmin = requesterRoles.includes("super_admin");
+    const isAdmin = requesterRoles.includes("admin");
+
+    const { institutionId: adminInstitutionId } = req.user;
     const { institutionId: targetInstitutionId } = req.query;
+    const { id: inviteId } = req.params;
 
-    const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId
-        : adminInstitutionId;
+    /* ================= ROLE CHECK ================= */
 
-    if (!institutionId) {
-      return res.status(400).json({
-        message: "Institution ID is required",
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        message: "Admin access required",
       });
     }
 
-    // invite id
-    const { id: inviteId } = req.params;
+    /* ================= RESOLVE INSTITUTION ================= */
+
+    let institutionId;
+
+    if (isSuperAdmin) {
+      if (!targetInstitutionId) {
+        return res.status(400).json({
+          message: "Institution ID is required for super admin",
+        });
+      }
+      institutionId = targetInstitutionId;
+    } else {
+      institutionId = adminInstitutionId;
+    }
+
+    /* ================= FETCH INVITE ================= */
+
     const invite = await InviteToken.findById(inviteId);
 
     if (!invite) {
-      return res.status(404).json({ message: "Invite not found" });
+      return res.status(404).json({
+        message: "Invite not found",
+      });
     }
 
-    if (
-      requesterRole !== "super_admin" &&
-      invite.institutionId.toString() !== institutionId.toString()
-    ) {
-      return res.status(403).json({ message: "Access denied" });
+    /* ================= INSTITUTION SECURITY ================= */
+
+    if (!isSuperAdmin &&
+        invite.institutionId.toString() !== institutionId.toString()) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
     }
 
-    // Public onboarding links cannot be resent
-    if (!invite.email) {
+    /* ================= BLOCK PUBLIC LINKS ================= */
+
+    if (invite.type === "public_onboarding") {
       return res.status(400).json({
         message: "Public onboarding links cannot be resent",
       });
     }
 
+    /* ================= CHECK USER EXISTS ================= */
+
     const existingUser = await User.findOne({
       email: invite.email.toLowerCase(),
     });
+
     if (existingUser) {
-      return res.status(409).json({ message: "User already exists" });
+      return res.status(409).json({
+        message: "User already exists",
+      });
     }
 
-    // Always regenerate token
+    /* ================= REGENERATE TOKEN ================= */
+
     invite.token = crypto.randomBytes(32).toString("hex");
-    invite.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    invite.expiresAt = new Date(
+      Date.now() + 7 * 24 * 60 * 60 * 1000
+    );
+
     await invite.save();
 
     const inviteLink = `${process.env.FRONTEND_URL}/register?invite=${invite.token}`;
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Invite resent successfully",
       inviteLink,
       expiresAt: invite.expiresAt,
     });
+
   } catch (err) {
     console.error("Resend invite error:", err);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Failed to resend invite",
     });

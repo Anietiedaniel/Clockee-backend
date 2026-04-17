@@ -1,0 +1,4 @@
+"email,role,departmentOrUnit,studentOrStaffId"
+"john1@gmail.com,staff,ICT,STF001"
+"mary1@gmail.com,student,Science,STD101"
+"baduser@gmail.com,admin,Finance,ADM001"
