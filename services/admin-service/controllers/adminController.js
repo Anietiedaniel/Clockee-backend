@@ -1466,6 +1466,14 @@ export const updateUserRemoteAccess = async (req, res) => {
       });
     }
 
+    // 🔥 IMPORTANT: super admin must provide institutionId
+    if (isSuperAdmin && !targetInstitutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "target institutionId is required for super admin",
+      });
+    }
+
     const institutionId = isSuperAdmin
       ? targetInstitutionId
       : adminInstitutionId;
@@ -1491,10 +1499,24 @@ export const updateUserRemoteAccess = async (req, res) => {
       });
     }
 
-    /* ================= INIT OBJECT (IMPORTANT FIX) ================= */
+    /* ================= INIT OBJECT ================= */
 
     if (!user.remoteAccess) {
       user.remoteAccess = {};
+    }
+
+    /* ================= PREVENT UNNECESSARY UPDATE ================= */
+
+    if (user.remoteAccess.allowed === allowed) {
+      return res.status(200).json({
+        success: true,
+        message: `Remote access already ${allowed ? "enabled" : "disabled"}`,
+        data: {
+          userId: user._id,
+          name: user.name,
+          remoteAccess: user.remoteAccess,
+        },
+      });
     }
 
     /* ================= UPDATE ================= */
@@ -1505,7 +1527,7 @@ export const updateUserRemoteAccess = async (req, res) => {
 
     await user.save();
 
-    /* ================= RESPONSE (SAFE) ================= */
+    /* ================= RESPONSE ================= */
 
     return res.status(200).json({
       success: true,
@@ -1526,6 +1548,7 @@ export const updateUserRemoteAccess = async (req, res) => {
     });
   }
 };
+
 
 
 export const promoteToAdmin = async (req, res) => {
