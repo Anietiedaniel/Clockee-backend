@@ -200,7 +200,7 @@ export async function loginUser(req, res, next) {
       message: "Login successful",
       token,
       user: {
-        userId: user.user_id,
+        userId: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
