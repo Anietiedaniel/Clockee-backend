@@ -323,8 +323,8 @@ export async function generateBackupCodes(req, res, next) {
     if (!targetUser) {
       return res.status(404).json({
         success: false,
-        message: error.message,
-        id :targetUserId,
+        message: "user not found",
+      
       });
     }
 
