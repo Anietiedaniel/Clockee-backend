@@ -192,7 +192,7 @@ export async function loginUser(req, res, next) {
 
     // ================= TOKEN =================
     const token = generateToken({
-      id: user.userId,
+      id: user._id,
       sessionId, // 🔥 VERY IMPORTANT
     });
 
@@ -201,7 +201,7 @@ export async function loginUser(req, res, next) {
       message: "Login successful",
       token,
       user: {
-        id: user.userId,
+        id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -216,7 +216,7 @@ export async function loginUser(req, res, next) {
 
 export const logoutUser = async (req, res) => {
   try {
-    const userId = req.user.userId; // from protect middleware
+    const userId = req.user._id; // from protect middleware
 
     await User.findByIdAndUpdate(userId, {
       activeSession: null, // 🔥 kill session
