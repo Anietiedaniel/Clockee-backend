@@ -49,7 +49,7 @@ export async function protect(req, res, next) {
     /* ===============================
        3️⃣ FETCH USER
     =============================== */
-    const user = await User.findById(decoded._id);
+    const user = await User.findById(decoded.id);
 
     if (!user) {
       return res.status(401).json({
