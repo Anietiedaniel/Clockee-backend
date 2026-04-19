@@ -55,7 +55,12 @@ export async function protect(req, res, next) {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: error.message,
+        message: "user not found",
+        debug: {
+      decoded,
+      userIdFromToken: decoded.userId,
+      institutionIdFromToken: decoded.institutionId,
+    },
       });
     }
 
