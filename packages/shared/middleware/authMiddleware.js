@@ -1,13 +1,7 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import jwt from "jsonwebtoken";
-import User from "../models/userModel.js"
-import TokenBlacklist from "../models/tokenBlackList.js";
+import User from "../models/userModel.js";
+;
 
-const JWT_SECRET = process.env.JWT_SECRET;
-
-// Middleware to protect routes
 export async function protect(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
@@ -32,15 +26,13 @@ export async function protect(req, res, next) {
     }
 
     /* ===============================
-       2️⃣ VERIFY TOKEN FIRST
+       2️⃣ VERIFY TOKEN
     =============================== */
     let decoded;
 
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET);
     } catch (err) {
-      console.error("JWT verification failed:", err.name, err.message);
-
       if (err.name === "TokenExpiredError") {
         return res.status(401).json({
           success: false,
@@ -55,22 +47,9 @@ export async function protect(req, res, next) {
     }
 
     /* ===============================
-       3️⃣ CHECK BLACKLIST
+       3️⃣ FETCH USER
     =============================== */
-    const blacklisted = await TokenBlacklist.findOne({ token });
-
-    if (blacklisted) {
-      return res.status(401).json({
-        success: false,
-        message: "Session expired. Please login again.",
-      });
-    }
-
-    /* ===============================
-       4️⃣ FETCH USER (SOURCE OF TRUTH)
-    =============================== */
-     const user = await User.findById(decoded.userId || decoded.id);
-
+    const user = await User.findById(decoded.id);
 
     if (!user) {
       return res.status(401).json({
@@ -80,7 +59,20 @@ export async function protect(req, res, next) {
     }
 
     /* ===============================
-       5️⃣ ATTACH CLEAN USER TO REQUEST
+       4️⃣ SINGLE DEVICE CHECK (NEW 🔥)
+    =============================== */
+    if (
+      !user.activeSession?.sessionId ||
+      user.activeSession.sessionId !== decoded.sessionId
+    ) {
+      return res.status(401).json({
+        success: false,
+        message: "Session expired or logged in on another device",
+      });
+    }
+
+    /* ===============================
+       5️⃣ ATTACH USER
     =============================== */
     req.user = {
       userId: user._id,
@@ -88,6 +80,7 @@ export async function protect(req, res, next) {
       institutionId: user.institutionId,
       email: user.email,
       name: user.name,
+      sessionId: decoded.sessionId,
     };
 
     next();
@@ -101,4 +94,3 @@ export async function protect(req, res, next) {
     });
   }
 }
-

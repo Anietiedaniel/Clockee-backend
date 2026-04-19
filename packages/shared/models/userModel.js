@@ -18,7 +18,7 @@ const userSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      unique: true, // creates index automatically
+      unique: true,
       lowercase: true,
       trim: true,
     },
@@ -65,10 +65,10 @@ const userSchema = new mongoose.Schema(
       default: "onsite",
     },
 
-        remoteAccess: {
+    remoteAccess: {
       allowed: {
         type: Boolean,
-        default: false, // must be explicitly granted
+        default: false,
       },
       approvedBy: {
         type: mongoose.Schema.Types.ObjectId,
@@ -82,10 +82,11 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Institution",
       required: true,
-      index: true, // better than separate index call
+      index: true,
     },
 
     institutionName: { type: String },
+
     institutionType: { 
       type: String, 
       enum: ["school", "company"] 
@@ -97,13 +98,8 @@ const userSchema = new mongoose.Schema(
     studentOrStaffId: {
       type: String,
       trim: true,
-      sparse: true, 
-      // IMPORTANT:
-      // sparse prevents duplicate null errors
-      // without sparse, Mongo will allow only ONE null
+      sparse: true,
     },
-   
-
 
     // ================= CREATOR =================
     createdBy: {
@@ -119,6 +115,13 @@ const userSchema = new mongoose.Schema(
     // ================= SECURITY =================
     backupCodes: [backupCodeSchema],
 
+    // ================= SESSION CONTROL (NEW) =================
+    activeSession: {
+      sessionId: { type: String },     // unique per login
+      deviceInfo: { type: String },    // optional (phone name, OS, etc.)
+      lastLogin: { type: Date },
+    },
+
     // ================= STATUS =================
     isActive: { 
       type: Boolean, 
@@ -128,24 +131,24 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-
 // ================= INDEXES =================
-
-// Email index already created by `unique: true`
 
 // Faster lookup by institution
 userSchema.index({ institutionId: 1 });
 
-// Role array index (good for querying admins, staff etc)
+// Role index
 userSchema.index({ role: 1 });
 
-// Compound index for institution + role (VERY USEFUL)
+// Compound index
 userSchema.index({ institutionId: 1, role: 1 });
 
-// Unique student/staff ID per institution (BETTER DESIGN)
+// Unique student/staff ID per institution
 userSchema.index(
   { institutionId: 1, studentOrStaffId: 1 },
   { unique: true, sparse: true }
 );
+
+// 🔥 NEW: session index for fast validation
+userSchema.index({ "activeSession.sessionId": 1 });
 
 export default mongoose.model("User", userSchema);

@@ -577,10 +577,22 @@ export const getAttendanceHistory = async (req, res) => {
 export const syncOfflineLogs = async (req, res) => {
   try {
     const { offlineLogs } = req.body;
-    const { _id: userId, institutionId } = req.user;
+    const { _id: userId, institutionId, sessionId } = req.user;
 
     if (!offlineLogs || !Array.isArray(offlineLogs) || offlineLogs.length === 0) {
       return res.status(400).json({ message: "No offline logs provided." });
+    }
+
+    // ===============================
+    // 🔐 SESSION VALIDATION (IMPORTANT)
+    // ===============================
+    const user = await User.findById(userId);
+
+    if (!user || user.activeSession?.sessionId !== sessionId) {
+      return res.status(401).json({
+        success: false,
+        message: "Session expired or logged in on another device",
+      });
     }
 
     const results = [];
@@ -595,7 +607,6 @@ export const syncOfflineLogs = async (req, res) => {
         /* ===============================
            SETTINGS
         =============================== */
-
         const settingsDoc = await InstitutionSetting.findOne({
           institutionId,
           isActive: true,
@@ -610,9 +621,8 @@ export const syncOfflineLogs = async (req, res) => {
         };
 
         /* ===============================
-           DUPLICATE CHECK (SMART)
+           DUPLICATE CHECK
         =============================== */
-
         const existing = await AttendanceLog.findOne({
           userId,
           actionType,
@@ -631,7 +641,6 @@ export const syncOfflineLogs = async (req, res) => {
         /* ===============================
            CLOCK-IN
         =============================== */
-
         if (actionType === "clock-in") {
           const [h, m] = settings.workStartTime.split(":").map(Number);
 
@@ -675,7 +684,6 @@ export const syncOfflineLogs = async (req, res) => {
         /* ===============================
            CLOCK-OUT
         =============================== */
-
         if (actionType === "clock-out") {
           const lastClockIn = await AttendanceLog.findOne({
             userId,
@@ -736,8 +744,10 @@ export const syncOfflineLogs = async (req, res) => {
 
           results.push({ ...log, syncStatus: "synced", _id: saved._id });
         }
+
       } catch (innerErr) {
         console.error("Sync error:", innerErr);
+
         results.push({
           ...log,
           syncStatus: "rejected_on_sync",
@@ -746,18 +756,19 @@ export const syncOfflineLogs = async (req, res) => {
       }
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Offline logs synchronized.",
       summary: {
         total: offlineLogs.length,
-        synced: results.filter((r) => r.syncStatus === "synced").length,
-        rejected: results.filter((r) => r.syncStatus === "rejected_on_sync").length,
+        synced: results.filter(r => r.syncStatus === "synced").length,
+        rejected: results.filter(r => r.syncStatus === "rejected_on_sync").length,
       },
       results,
     });
+
   } catch (err) {
     console.error("Sync error:", err);
-    res.status(500).json({ message: "Server error during sync." });
+    return res.status(500).json({ message: "Server error during sync." });
   }
 };
 

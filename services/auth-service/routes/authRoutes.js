@@ -24,7 +24,7 @@ router.get('/debug/users', async (req, res) => {
 });
 
 router.post("/login", loginUser); 
-router.post("/logout", logoutUser); 
+router.post("/logout", protect,logoutUser); 
 router.get("/verify-token", protect, verifyToken);
 
 

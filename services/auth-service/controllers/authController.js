@@ -2,7 +2,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import bcrypt from "bcryptjs";
-import { OAuth2Client } from "google-auth-library";
+import { v4 as uuidv4 } from "uuid";
 import {
   User,
   hashPassword,
@@ -16,7 +16,7 @@ import {
   TokenBlacklist,
 } from "@clockee/shared";
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
 
 
 const logger = createLogger("auth-service");
@@ -27,18 +27,18 @@ if (!JWT_SECRET) {
 }
 
 
-function generateToken(user) {
+function generateToken({ id, sessionId, role, institutionId, name, email }) {
   return jwt.sign(
     {
-      userId: user._id,
-      role: user.role,
-      institutionId: user.institutionId,
-      name: user.name, 
-      email: user.email,
-      
+      userId,
+      sessionId,
+      role,
+      institutionId,
+      name,
+      email,
     },
-    JWT_SECRET,
-    { expiresIn: "24h" }
+    process.env.JWT_SECRET,
+    { expiresIn: "30d" }
   );
 }
 
@@ -140,9 +140,12 @@ export async function registerUser(req, res, next) {
 }
 
 
+
+
 export async function loginUser(req, res, next) {
   try {
     const { email, password } = req.body;
+    const { deviceInfo } = req.body; 
 
     if (!email || !password) {
       return res.status(400).json({
@@ -159,7 +162,8 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    if (user.role === "pending") {
+    // ⚠️ FIX: role is an array in your schema
+    if (user.role?.includes("pending")) {
       return res.status(403).json({
         success: false,
         status: "PENDING_APPROVAL",
@@ -175,14 +179,29 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    const token = generateToken(user);
+    // ================= NEW: SESSION =================
+    const sessionId = uuidv4();
+
+    user.activeSession = {
+      sessionId,
+      deviceInfo: deviceInfo || "unknown device",
+      lastLogin: new Date(),
+    };
+
+    await user.save();
+
+    // ================= TOKEN =================
+    const token = generateToken({
+      id: user.userId,
+      sessionId, // 🔥 VERY IMPORTANT
+    });
 
     res.json({
       success: true,
       message: "Login successful",
       token,
       user: {
-        id: user._id,
+        id: user.userId,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -197,27 +216,10 @@ export async function loginUser(req, res, next) {
 
 export const logoutUser = async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
+    const userId = req.user.userId; // from protect middleware
 
-    if (!token) {
-      return res.status(400).json({
-        success: false,
-        message: "Token required",
-      });
-    }
-
-    const decoded = jwt.decode(token);
-
-    if (!decoded?.exp) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid token",
-      });
-    }
-
-    await TokenBlacklist.create({
-      token,
-      expiresAt: new Date(decoded.exp * 1000),
+    await User.findByIdAndUpdate(userId, {
+      activeSession: null, // 🔥 kill session
     });
 
     return res.status(200).json({
@@ -233,7 +235,7 @@ export const logoutUser = async (req, res) => {
       message: "Logout failed",
     });
   }
-};
+};;
 
 export async function verifyToken(req, res) {
   try {
@@ -285,21 +287,51 @@ export async function generateBackupCodes(req, res, next) {
   }
 }
 
+
+
 export async function useBackupCode(req, res, next) {
   try {
     const { email, code } = req.body;
-    const user = await User.findOne({ email });
 
-    if (!user?.backupCodes?.length) {
+    if (!email || !code) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and backup code are required",
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user || !user.backupCodes?.length) {
       return res.status(400).json({
         success: false,
         message: "No backup codes available",
       });
     }
 
-    const validCode = user.backupCodes.find(
-      bc => !bc.used && verifyPassword(code, bc.code)
-    );
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Account is inactive",
+      });
+    }
+
+    /* ================= VERIFY CODE ================= */
+
+    let validCode = null;
+
+    for (const bc of user.backupCodes) {
+      if (bc.used) continue;
+
+      const isMatch = await verifyPassword(code, bc.code);
+
+      if (isMatch) {
+        validCode = bc;
+        break;
+      }
+    }
 
     if (!validCode) {
       return res.status(401).json({
@@ -308,20 +340,52 @@ export async function useBackupCode(req, res, next) {
       });
     }
 
+    /* ================= MARK USED ================= */
+
     validCode.used = true;
+
+    /* ================= SESSION ================= */
+
+    const sessionId = uuidv4();
+
+    user.activeSession = {
+      sessionId,
+      lastLogin: new Date(),
+      deviceInfo: "backup-code-login",
+    };
+
     await user.save();
 
-    const token = generateToken(user);
+    /* ================= TOKEN ================= */
 
-    res.json({
+    const token = generateToken({
+      userId: user._id,
+      sessionId,
+      role: user.role,
+      institutionId: user.institutionId,
+      name: user.name,
+      email: user.email,
+    });
+
+    return res.json({
       success: true,
       message: "Backup code accepted",
       token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        institutionId: user.institutionId,
+      },
     });
+
   } catch (err) {
+    console.error("Backup code error:", err);
     next(err);
   }
 }
+
 
 export async function forgotPassword(req, res) {
   try {
@@ -358,25 +422,28 @@ export async function forgotPassword(req, res) {
     user.resetPasswordToken = hashedToken;
     user.resetPasswordExpires = Date.now() + 10 * 60 * 1000;
 
+    // 🔐 IMPORTANT: invalidate active session (single-device system)
+    user.activeSession = null;
+
     await user.save();
 
     const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    /* ================= FIXED SMTP CONFIG ================= */
+    /* ================= SMTP CONFIG ================= */
     const port = Number(process.env.SMTP_PORT || 465);
 
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port,
-      secure: port === 465, // ✅ FIX: automatic secure handling
+      secure: port === 465,
       auth: {
         user: process.env.ALERT_EMAIL_FROM,
         pass: process.env.ALERT_EMAIL_PASS,
       },
-      connectionTimeout: 10000, // ✅ prevents hanging forever
+      connectionTimeout: 10000,
     });
 
-    /* ================= VERIFY SMTP BEFORE SENDING ================= */
+    /* ================= VERIFY SMTP ================= */
     await transporter.verify().catch((err) => {
       console.error("SMTP VERIFY FAILED:", err.message);
       throw new Error("Email service not available");
@@ -474,81 +541,4 @@ export async function resetPassword(req, res) {
   }
 }
 
-export const googleAuth = async (req, res) => {
-  try {
-    const { idToken } = req.body;
 
-    if (!idToken) {
-      return res.status(400).json({
-        success: false,
-        message: "Google token required",
-      });
-    }
-
-    /* ================= VERIFY GOOGLE TOKEN ================= */
-
-    const ticket = await client.verifyIdToken({
-      idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-
-    const payload = ticket.getPayload();
-
-    const {
-      email,
-      name,
-      picture,
-      sub: googleId,
-    } = payload;
-
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "Google account has no email",
-      });
-    }
-
-    /* ================= CHECK USER ================= */
-
-    let user = await User.findOne({ email });
-
-    /* ================= CREATE USER IF NOT EXISTS ================= */
-
-    if (!user) {
-      user = await User.create({
-        name,
-        email,
-        avatar: picture,
-        googleId,
-        authProvider: "google",
-        role: "pending", // or "user" depending on your flow
-      });
-    }
-
-    /* ================= GENERATE YOUR JWT ================= */
-
-    const token = generateToken(user);
-
-    return res.status(200).json({
-      success: true,
-      message: "Google login successful",
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        institutionId: user.institutionId,
-        avatar: user.avatar,
-      },
-    });
-
-  } catch (error) {
-    console.error("Google auth error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Google authentication failed",
-    });
-  }
-};
