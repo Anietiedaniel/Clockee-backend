@@ -207,6 +207,7 @@ export async function loginUser(req, res, next) {
         role: user.role,
         institutionId: user.institutionId,
       },
+      session: user.activeSession,
     });
 
   } catch (err) {
