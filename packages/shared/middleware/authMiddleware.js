@@ -1,7 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";
-import { error } from "winston";
-;
+
 
 export async function protect(req, res, next) {
   try {
