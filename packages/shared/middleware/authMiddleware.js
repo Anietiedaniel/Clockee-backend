@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";
+import { error } from "winston";
 ;
 
 export async function protect(req, res, next) {
@@ -54,7 +55,7 @@ export async function protect(req, res, next) {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: "User not found",
+        message: error.message,
       });
     }
 
