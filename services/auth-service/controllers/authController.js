@@ -27,10 +27,10 @@ if (!JWT_SECRET) {
 }
 
 
-function generateToken({ id, sessionId, role, institutionId, name, email }) {
+function generateToken({ userId, sessionId, role, institutionId, name, email }) {
   return jwt.sign(
     {
-      id,
+      userId,
       sessionId,
       role,
       institutionId,
@@ -144,8 +144,7 @@ export async function registerUser(req, res, next) {
 
 export async function loginUser(req, res, next) {
   try {
-    const { email, password } = req.body;
-    const { deviceInfo } = req.body; 
+    const { email, password, deviceInfo } = req.body; 
 
     if (!email || !password) {
       return res.status(400).json({
@@ -192,7 +191,7 @@ export async function loginUser(req, res, next) {
 
     // ================= TOKEN =================
     const token = generateToken({
-      id: user._id,
+      userId: user._id,
       sessionId, // 🔥 VERY IMPORTANT
     });
 
@@ -201,7 +200,7 @@ export async function loginUser(req, res, next) {
       message: "Login successful",
       token,
       user: {
-        id: user._id,
+        userId: user.user_id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -217,7 +216,7 @@ export async function loginUser(req, res, next) {
 
 export const logoutUser = async (req, res) => {
   try {
-    const userId = req.user._id; // from protect middleware
+    const userId = req.user.userId; // from protect middleware
 
     await User.findByIdAndUpdate(userId, {
       activeSession: null, // 🔥 kill session
@@ -257,36 +256,113 @@ export async function verifyToken(req, res) {
 
 export async function generateBackupCodes(req, res, next) {
   try {
-    const admin = await User.findById(req.user.userId);
-    if (!admin || admin.role !== "admin") {
+    const {
+      role,
+      institutionId: adminInstitutionId,
+      userId: adminId,
+    } = req.user;
+
+    const { targetUserId, institutionId: targetInstitutionId } = req.body;
+
+    /* ================= ROLE CHECK ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: "Admin access required",
       });
     }
 
-    const { targetUserId } = req.body;
-    const targetUser = await User.findById(targetUserId);
-    if (!targetUser) {
-      return res.status(404).json({
+    /* ================= VALIDATION ================= */
+
+    if (!targetUserId) {
+      return res.status(400).json({
         success: false,
-        message: "Target user not found",
+        message: "targetUserId is required",
       });
     }
 
-    const rawCodes = Array.from({ length: 5 }, generateRandomCode);
-    targetUser.backupCodes = await hashCodes(rawCodes);
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid targetUserId",
+      });
+    }
+
+    if (isSuperAdmin && !targetInstitutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "institutionId is required for super admin",
+      });
+    }
+
+    const institutionId = isSuperAdmin
+      ? targetInstitutionId
+      : adminInstitutionId;
+
+    if (!institutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Institution ID is required",
+      });
+    }
+
+    /* ================= FETCH USER ================= */
+
+    const targetUser = await User.findOne({
+      _id: targetUserId,
+      institutionId,
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found in this institution",
+      });
+    }
+
+    /* ================= GENERATE CODES ================= */
+
+    const rawCodes = Array.from({ length: 5 }, () =>
+      Math.random().toString(36).substring(2, 10).toUpperCase()
+    );
+
+    const hashedCodes = await Promise.all(
+      rawCodes.map(async (code) => ({
+        code: await bcrypt.hash(code, 10),
+        used: false,
+      }))
+    );
+
+    /* ================= SAVE ================= */
+
+    targetUser.backupCodes = hashedCodes;
     await targetUser.save();
 
-    res.json({
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
       success: true,
-      message: "Backup codes generated",
-      codes: rawCodes,
+      message: "Backup codes generated successfully",
+      data: {
+        userId: targetUser._id,
+        name: targetUser.name,
+        codes: rawCodes, // ⚠️ show only once
+        creator: adminId,
+      },
     });
+
   } catch (err) {
+    console.error("Generate backup codes error:", err);
     next(err);
   }
 }
+
 
 
 
@@ -379,6 +455,7 @@ export async function useBackupCode(req, res, next) {
         role: user.role,
         institutionId: user.institutionId,
       },
+      session:user.activeSession,
     });
 
   } catch (err) {
