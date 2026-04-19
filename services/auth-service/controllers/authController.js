@@ -323,7 +323,7 @@ export async function generateBackupCodes(req, res, next) {
     if (!targetUser) {
       return res.status(404).json({
         success: false,
-        message: "User not found in this institution",
+        message: error.message,
       });
     }
 
