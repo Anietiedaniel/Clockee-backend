@@ -30,7 +30,7 @@ if (!JWT_SECRET) {
 function generateToken({ id, sessionId, role, institutionId, name, email }) {
   return jwt.sign(
     {
-      userId,
+      id,
       sessionId,
       role,
       institutionId,
