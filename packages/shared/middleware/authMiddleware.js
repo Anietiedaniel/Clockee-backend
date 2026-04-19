@@ -90,7 +90,7 @@ export async function protect(req, res, next) {
 
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: error.message,
     });
   }
 }
