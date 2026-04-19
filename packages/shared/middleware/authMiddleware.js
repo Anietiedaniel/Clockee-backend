@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";
-import mongoose from "mongoose";
+
 
 
 export async function protect(req, res, next) {
