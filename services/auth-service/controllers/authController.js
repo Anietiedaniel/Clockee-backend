@@ -324,6 +324,7 @@ export async function generateBackupCodes(req, res, next) {
       return res.status(404).json({
         success: false,
         message: error.message,
+        id :targetUserId,
       });
     }
 
