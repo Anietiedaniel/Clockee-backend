@@ -1672,7 +1672,7 @@ export const promoteToAdmin = async (req, res) => {
 
 export const demoteAdmin = async (req, res) => {
   try {
-    const { id: targetUserId } = req.params;
+    const { userId: targetUserId } = req.params;
     const requester = req.user;
 
     /* ================= VALIDATE ID ================= */
