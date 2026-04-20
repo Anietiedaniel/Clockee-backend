@@ -84,8 +84,7 @@ const institutionSchema = new mongoose.Schema(
       default: Date.now,
     },
   },
-]
-
+],
     
 
     // The admin that registered or manages this institution
