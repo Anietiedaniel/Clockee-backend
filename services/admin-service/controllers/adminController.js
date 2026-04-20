@@ -2094,7 +2094,7 @@ export const adminUpdateUser = async (req, res) => {
       address,
       departmentOrUnit,
       studentOrStaffId,
-      role, // optional
+      role, 
     } = req.body;
 
     /* ================= UPDATE BASIC FIELDS ================= */

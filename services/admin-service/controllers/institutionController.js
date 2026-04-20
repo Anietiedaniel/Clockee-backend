@@ -4,30 +4,87 @@ import { Institution,  Branch, User} from "@clockee/shared";
 // both admin and supper admin can do it
 export const getInstitutionProfile = async (req, res) => {
   try {
-    const { institutionId:adminInstitutionId, role:requesterRole } = req.user;
-    const {institutionId:targetInstitutionId} = req.body
-    
-    const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId
-        : adminInstitutionId;
+    const {
+      institutionId: adminInstitutionId,
+      role: requesterRoles,
+      userId,
+    } = req.user;
 
-    
+    const { institutionId: targetInstitutionId } = req.query;
+
+    /* ================= NORMALIZE ROLES ================= */
+
+    const roles = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
+
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= RESOLVE INSTITUTION ================= */
+
+    const institutionId = isSuperAdmin
+      ? targetInstitutionId
+      : adminInstitutionId;
+
+    if (!institutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "institutionId is required",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(institutionId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid institution ID",
+      });
+    }
+
+    /* ================= FETCH ================= */
+
     const institution = await Institution.findById(institutionId)
       .select("-__v")
       .lean();
 
-      if (!institution) {
-      return res.status(404).json({ message: "Institution not found" });
+    if (!institution) {
+      return res.status(404).json({
+        success: false,
+        message: "Institution not found",
+      });
     }
 
-    res.status(200).json({
+    /* ================= OPTIONAL: ADD OWNER FLAG ================= */
+
+    const ownerId = institution.owner?.toString();
+
+    const isOwner =
+      ownerId && ownerId === userId.toString();
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
       success: true,
-      institution,
+      data: {
+        ...institution,
+        isOwner: !!isOwner, // useful for frontend
+      },
     });
+
   } catch (err) {
-    console.error("Error fetching institution profile:", err);
-    res.status(500).json({ message: "Server error", error:err.message });
+    console.error("Error fetching institution profile:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
