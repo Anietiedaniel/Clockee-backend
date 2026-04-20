@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 import { Institution,  Branch, User} from "@clockee/shared";
+import mongoose from "mongoose";
 
 // both admin and supper admin can do it
 export const getInstitutionProfile = async (req, res) => {
