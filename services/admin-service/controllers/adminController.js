@@ -583,15 +583,18 @@ export const deactivateUser = async (req, res) => {
       });
     }
 
+    // 🔥 SAFE OWNER HANDLING
+    const ownerId = institution.owner?.toString();
+
     const isOwner =
-      institution.owner.toString() === requester.userId.toString();
+      ownerId && ownerId === requester.userId.toString();
 
     const isTargetOwner =
-      institution.owner.toString() === user._id.toString();
+      ownerId && ownerId === user._id.toString();
 
     /* ================= BUSINESS RULES ================= */
 
-    // ❌ Cannot deactivate super admin
+    // ❌ cannot deactivate super admin
     if (targetRoles.includes("super_admin")) {
       return res.status(400).json({
         success: false,
@@ -599,7 +602,7 @@ export const deactivateUser = async (req, res) => {
       });
     }
 
-    // ❌ Cannot deactivate yourself
+    // ❌ cannot deactivate yourself
     if (user._id.toString() === requester.userId.toString()) {
       return res.status(400).json({
         success: false,
@@ -607,35 +610,45 @@ export const deactivateUser = async (req, res) => {
       });
     }
 
-    // 🔥 SUPER ADMIN → allowed (except other super_admin handled above)
-
+    // 🔥 PERMISSION LOGIC
     if (!isSuperAdmin) {
-      // OWNER LOGIC
-      if (isOwner) {
-        // ❌ owner cannot deactivate themselves (already handled)
-        // ✅ owner CAN deactivate admins + staff
-      } else {
-        // NORMAL ADMIN
+      if (ownerId) {
+        // ===== WHEN OWNER EXISTS =====
 
-        // ❌ cannot touch owner
-        if (isTargetOwner) {
-          return res.status(403).json({
-            success: false,
-            message: "Cannot deactivate institution owner",
-          });
+        if (!isOwner) {
+          // NORMAL ADMIN
+
+          if (isTargetOwner) {
+            return res.status(403).json({
+              success: false,
+              message: "Cannot deactivate institution owner",
+            });
+          }
+
+          if (targetRoles.includes("admin")) {
+            return res.status(403).json({
+              success: false,
+              message: "You can only deactivate staff",
+            });
+          }
         }
+        // OWNER → allowed (admin + staff)
 
-        // ❌ cannot deactivate other admins
+      } else {
+        // ===== FALLBACK (NO OWNER YET) =====
+        // Treat all admins equally (temporary safe mode)
+
         if (targetRoles.includes("admin")) {
           return res.status(403).json({
             success: false,
-            message: "You can only deactivate staff",
+            message:
+              "Admin deactivation restricted until institution owner is set",
           });
         }
       }
     }
 
-    // ❌ Already inactive
+    // ❌ already inactive
     if (!user.isActive) {
       return res.status(400).json({
         success: false,
@@ -669,7 +682,6 @@ export const deactivateUser = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: err.message,
     });
   }
 };
