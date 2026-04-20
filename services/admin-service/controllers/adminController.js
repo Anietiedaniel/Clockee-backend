@@ -1553,83 +1553,122 @@ export const updateUserRemoteAccess = async (req, res) => {
 
 export const promoteToAdmin = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { id: targetUserId } = req.params;
     const requester = req.user;
 
-    const targetUser = await User.findById(userId);
+    const requesterRoles = Array.isArray(requester.role)
+      ? requester.role
+      : [requester.role];
+
+    const isSuperAdmin = requesterRoles.includes("super_admin");
+
+    /* ================= VALIDATION ================= */
+
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    /* ================= FETCH TARGET ================= */
+
+    const targetUser = await User.findById(targetUserId);
 
     if (!targetUser) {
       return res.status(404).json({
-        message: "User not found"
+        success: false,
+        message: "User not found",
       });
     }
 
-    // Prevent modifying super admin
-    if (targetUser.roles.includes("super_admin")) {
+    /* ================= PREVENT SUPER ADMIN EDIT ================= */
+
+    if (targetUser.role.includes("super_admin")) {
       return res.status(400).json({
-        message: "Cannot modify super admin"
+        success: false,
+        message: "Cannot modify super admin",
       });
     }
 
-    // Prevent self-promotion
-    if (targetUser._id.toString() === requester._id.toString()) {
+    /* ================= PREVENT SELF ================= */
+
+    if (targetUser._id.toString() === requester.userId.toString()) {
       return res.status(400).json({
-        message: "You cannot promote yourself"
+        success: false,
+        message: "You cannot promote yourself",
       });
     }
 
-    // Cross-institution protection
+    /* ================= CROSS-INSTITUTION ================= */
+
     if (
-      !requester.roles.includes("super_admin") &&
+      !isSuperAdmin &&
       requester.institutionId.toString() !==
         targetUser.institutionId.toString()
     ) {
       return res.status(403).json({
-        message: "You cannot manage users from another institution"
+        success: false,
+        message: "You cannot manage users from another institution",
       });
     }
 
-    // Owner check if not super_admin
-    if (!requester.roles.includes("super_admin")) {
+    /* ================= OWNER CHECK ================= */
+
+    if (!isSuperAdmin) {
       const institution = await Institution.findById(
         requester.institutionId
       ).select("owner");
 
       if (!institution) {
         return res.status(404).json({
-          message: "Institution not found"
+          success: false,
+          message: "Institution not found",
         });
       }
 
-      if (institution.owner.toString() !== requester._id.toString()) {
+      if (institution.owner.toString() !== requester.userId.toString()) {
         return res.status(403).json({
-          message: "Only the institution owner can promote admins"
+          success: false,
+          message: "Only the institution owner can promote admins",
         });
       }
     }
 
-    // Already admin check
-    if (targetUser.roles.includes("admin")) {
+    /* ================= ALREADY ADMIN ================= */
+
+    if (targetUser.role.includes("admin")) {
       return res.status(400).json({
-        message: "User is already an admin"
+        success: false,
+        message: "User is already an admin",
       });
     }
 
-    // Promote
-    targetUser.roles.push("admin");
+    /* ================= PROMOTE ================= */
+
+    targetUser.role.push("admin");
+
     await targetUser.save();
 
-    res.status(200).json({
-      message: "User promoted to admin successfully"
+    return res.status(200).json({
+      success: true,
+      message: "User promoted to admin successfully",
+      data: {
+        userId: targetUser._id,
+        role: targetUser.role,
+      },
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      message: "Promotion failed"
+    console.error("Promotion error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Promotion failed",
     });
   }
 };
+
 
 export const demoteAdmin = async (req, res) => {
   try {

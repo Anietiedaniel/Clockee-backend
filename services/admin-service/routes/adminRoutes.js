@@ -101,7 +101,7 @@ router.patch("/users/:id/remote-access",
    protect, authorizeAdmin, updateUserRemoteAccess);
 
 router.patch(
-  "/users/:userId/demote-admin",
+  "/users/:userId/promote-admin",
   protect,
   authorizeAdmin,
   promoteToAdmin
