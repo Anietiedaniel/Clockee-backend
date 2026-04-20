@@ -50,8 +50,44 @@ const institutionSchema = new mongoose.Schema(
       ref: "User",
       default: null
     },
+
+    status: {
+      type: String,
+      enum: [
+        "active",       // normal working user
+        "suspended",    // temporarily blocked
+        "inactive",     // not yet approved / disabled
+        "deleted"       // soft deleted (hidden from system)
+      ],
+      default: "active",
+    },
+
+    statusHistory: [
+  {
+    status: {
+      type: String,
+      enum: ["active", "suspended", "inactive", "deleted"],
+    },
+
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+
+    reason: {
+      type: String,
+      default: null,
+    },
+
+    date: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+]
+
     
-  
+
     // The admin that registered or manages this institution
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

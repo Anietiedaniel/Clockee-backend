@@ -1,6 +1,7 @@
 import QRCode from "qrcode";
 import { Institution,  Branch, User} from "@clockee/shared";
 import mongoose from "mongoose";
+import crypto from "crypto";
 
 // both admin and supper admin can do it
 export const getInstitutionProfile = async (req, res) => {
@@ -94,35 +95,98 @@ export const getInstitutionProfile = async (req, res) => {
 export const createBranch = async (req, res) => {
   try {
     const { name, address, latitude, longitude } = req.body;
-    const { institutionId, _id: adminId } = req.user;
 
-    // Generate a unique QR data string
-    const qrData = JSON.stringify({
-      branchName: name,
+    const {
       institutionId,
-      timestamp: Date.now(),
+      userId,
+      role,
+    } = req.user;
+
+    /* ================= ROLE CHECK ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+
+    if (!roles.includes("admin") && !roles.includes("super_admin")) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to create branch",
+      });
+    }
+
+    /* ================= VALIDATION ================= */
+
+    if (!name || !address) {
+      return res.status(400).json({
+        success: false,
+        message: "Name and address are required",
+      });
+    }
+
+    if (
+      typeof latitude !== "number" ||
+      typeof longitude !== "number"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude and longitude must be numbers",
+      });
+    }
+
+    /* ================= GENERATE QR DATA ================= */
+
+    const qrToken = crypto.randomBytes(16).toString("hex");
+
+    const qrData = JSON.stringify({
+      branchId: null, // will update after creation
+      institutionId,
+      token: qrToken,
     });
 
-    // Generate QR code image
     const qrCodeUrl = await QRCode.toDataURL(qrData);
+
+    /* ================= CREATE BRANCH ================= */
 
     const branch = await Branch.create({
       institutionId,
-      name,
-      address,
-      latitude,
-      longitude,
+      name: name.trim(),
+      address: address.trim(),
+      location: {
+        type: "Point",
+        coordinates: [longitude, latitude],
+      },
       qrCodeUrl,
-      createdBy: adminId,
+      qrToken, // 🔥 store token for validation later
+      createdBy: userId,
     });
 
-    res.status(201).json({
-      message: "Branch created successfully",
-      branch,
+    /* ================= UPDATE QR WITH REAL BRANCH ID ================= */
+
+    const updatedQrData = JSON.stringify({
+      branchId: branch._id,
+      institutionId,
+      token: qrToken,
     });
+
+    const updatedQrCodeUrl = await QRCode.toDataURL(updatedQrData);
+
+    branch.qrCodeUrl = updatedQrCodeUrl;
+    await branch.save();
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(201).json({
+      success: true,
+      message: "Branch created successfully",
+      data: branch,
+    });
+
   } catch (err) {
-    console.error("Error creating branch:", err);
-    res.status(500).json({ message: "Server error" });
+    console.error("Create branch error:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create branch",
+    });
   }
 };
 
@@ -146,43 +210,113 @@ export const getBranches = async (req, res) => {
 export const updateInstitution = async (req, res) => {
   try {
     const {
-      role: requesterRole,
+      role: requesterRoles,
       institutionId: adminInstitutionId,
+      userId,
     } = req.user;
 
-    const { institutionId: targetInstitutionId, ...updates } = req.body;
+    const { institutionId: targetInstitutionId, ...body } = req.body;
 
-    // Decide which institution can be updated
-    const institutionId =
-      requesterRole === "super_admin"
-        ? targetInstitutionId
-        : adminInstitutionId;
+    /* ================= NORMALIZE ROLES ================= */
+
+    const roles = Array.isArray(requesterRoles)
+      ? requesterRoles
+      : [requesterRoles];
+
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= RESOLVE INSTITUTION ================= */
+
+    const institutionId = isSuperAdmin
+      ? targetInstitutionId
+      : adminInstitutionId;
 
     if (!institutionId) {
       return res.status(400).json({
+        success: false,
         message: "Institution ID is required",
       });
     }
 
-    const institution = await Institution.findByIdAndUpdate(
-      institutionId,
-      updates,
-      { new: true }
-    );
+    if (!mongoose.Types.ObjectId.isValid(institutionId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid institution ID",
+      });
+    }
+
+    /* ================= FETCH ================= */
+
+    const institution = await Institution.findById(institutionId);
 
     if (!institution) {
       return res.status(404).json({
+        success: false,
         message: "Institution not found",
       });
     }
 
-    res.status(200).json({
-      message: "Institution updated successfully",
-      institution,
+    /* ================= OWNER CHECK ================= */
+
+    const ownerId = institution.owner?.toString();
+
+    const isOwner =
+      ownerId && ownerId === userId.toString();
+
+    // 🔥 Only owner or super admin can update institution
+    if (!isSuperAdmin && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "Only owner can update institution",
+      });
+    }
+
+    /* ================= ALLOWED FIELDS ================= */
+
+    const allowedFields = [
+      "name",
+      "address",
+      "email",
+      "phone",
+      "website",
+      "logo",
+    ];
+
+    /* ================= APPLY SAFE UPDATES ================= */
+
+    allowedFields.forEach((field) => {
+      if (body[field] !== undefined) {
+        institution[field] = body[field];
+      }
     });
+
+    /* ================= SAVE ================= */
+
+    await institution.save();
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      message: "Institution updated successfully",
+      data: institution,
+    });
+
   } catch (err) {
-    console.error("Error updating institution:", err);
-    res.status(500).json({ message: "Server error" });
+    console.error("Error updating institution:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
