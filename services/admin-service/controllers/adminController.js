@@ -526,7 +526,7 @@ export const deactivateUser = async (req, res) => {
       });
     }
 
-    /* ================= FETCH USER ================= */
+    /* ================= FETCH TARGET USER ================= */
 
     const user = await User.findById(targetUserId);
 
@@ -550,7 +550,7 @@ export const deactivateUser = async (req, res) => {
     const isSuperAdmin = requesterRoles.includes("super_admin");
     const isAdmin = requesterRoles.includes("admin");
 
-    /* ================= ACCESS CONTROL ================= */
+    /* ================= BASIC ACCESS ================= */
 
     if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
@@ -570,9 +570,28 @@ export const deactivateUser = async (req, res) => {
       });
     }
 
+    /* ================= FETCH INSTITUTION ================= */
+
+    const institution = await Institution.findById(
+      user.institutionId
+    ).select("owner");
+
+    if (!institution) {
+      return res.status(404).json({
+        success: false,
+        message: "Institution not found",
+      });
+    }
+
+    const isOwner =
+      institution.owner.toString() === requester.userId.toString();
+
+    const isTargetOwner =
+      institution.owner.toString() === user._id.toString();
+
     /* ================= BUSINESS RULES ================= */
 
-    // prevent deactivating super admin
+    // ❌ Cannot deactivate super admin
     if (targetRoles.includes("super_admin")) {
       return res.status(400).json({
         success: false,
@@ -580,15 +599,7 @@ export const deactivateUser = async (req, res) => {
       });
     }
 
-    // prevent deactivating admin (optional rule)
-    if (targetRoles.includes("admin")) {
-      return res.status(400).json({
-        success: false,
-        message: "Admins cannot be deactivated",
-      });
-    }
-
-    // prevent self-deactivation
+    // ❌ Cannot deactivate yourself
     if (user._id.toString() === requester.userId.toString()) {
       return res.status(400).json({
         success: false,
@@ -596,18 +607,45 @@ export const deactivateUser = async (req, res) => {
       });
     }
 
+    // 🔥 SUPER ADMIN → allowed (except other super_admin handled above)
+
+    if (!isSuperAdmin) {
+      // OWNER LOGIC
+      if (isOwner) {
+        // ❌ owner cannot deactivate themselves (already handled)
+        // ✅ owner CAN deactivate admins + staff
+      } else {
+        // NORMAL ADMIN
+
+        // ❌ cannot touch owner
+        if (isTargetOwner) {
+          return res.status(403).json({
+            success: false,
+            message: "Cannot deactivate institution owner",
+          });
+        }
+
+        // ❌ cannot deactivate other admins
+        if (targetRoles.includes("admin")) {
+          return res.status(403).json({
+            success: false,
+            message: "You can only deactivate staff",
+          });
+        }
+      }
+    }
+
+    // ❌ Already inactive
     if (!user.isActive) {
       return res.status(400).json({
         success: false,
-        message: "User is already deactivated",
+        message: "User already deactivated",
       });
     }
 
     /* ================= ACTION ================= */
 
     user.isActive = false;
-
-    // optional: invalidate session immediately
     user.activeSession = null;
 
     await user.save();
