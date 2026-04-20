@@ -96,11 +96,7 @@ export const createBranch = async (req, res) => {
   try {
     const { name, address, latitude, longitude } = req.body;
 
-    const {
-      institutionId,
-      userId,
-      role,
-    } = req.user;
+    const { institutionId, userId, role } = req.user;
 
     /* ================= ROLE CHECK ================= */
 
@@ -109,16 +105,16 @@ export const createBranch = async (req, res) => {
     if (!roles.includes("admin") && !roles.includes("super_admin")) {
       return res.status(403).json({
         success: false,
-        message: "Not authorized to create branch",
+        message: "Not authorized",
       });
     }
 
     /* ================= VALIDATION ================= */
 
-    if (!name || !address) {
+    if (!name) {
       return res.status(400).json({
         success: false,
-        message: "Name and address are required",
+        message: "Branch name is required",
       });
     }
 
@@ -132,61 +128,54 @@ export const createBranch = async (req, res) => {
       });
     }
 
-    /* ================= GENERATE QR DATA ================= */
+    /* ================= GENERATE SECRET ================= */
 
-    const qrToken = crypto.randomBytes(16).toString("hex");
+    const qrSecret = crypto.randomBytes(16).toString("hex");
 
-    const qrData = JSON.stringify({
-      branchId: null, // will update after creation
+    /* ================= CREATE QR DATA ================= */
+
+    const qrPayload = JSON.stringify({
       institutionId,
-      token: qrToken,
+      secret: qrSecret,
     });
 
-    const qrCodeUrl = await QRCode.toDataURL(qrData);
+    const qrCodeUrl = await QRCode.toDataURL(qrPayload);
 
     /* ================= CREATE BRANCH ================= */
 
     const branch = await Branch.create({
       institutionId,
       name: name.trim(),
-      address: address.trim(),
+      address: address?.trim(),
+
       location: {
         type: "Point",
-        coordinates: [longitude, latitude],
+        coordinates: [longitude, latitude], // ✅ IMPORTANT ORDER
       },
-      qrCodeUrl,
-      qrToken, // 🔥 store token for validation later
-      createdBy: userId,
+
+      qrSecret, // ✅ REQUIRED FIELD
+
+      createdBy: userId, // if your schema allows it
     });
-
-    /* ================= UPDATE QR WITH REAL BRANCH ID ================= */
-
-    const updatedQrData = JSON.stringify({
-      branchId: branch._id,
-      institutionId,
-      token: qrToken,
-    });
-
-    const updatedQrCodeUrl = await QRCode.toDataURL(updatedQrData);
-
-    branch.qrCodeUrl = updatedQrCodeUrl;
-    await branch.save();
 
     /* ================= RESPONSE ================= */
 
     return res.status(201).json({
       success: true,
       message: "Branch created successfully",
-      data: branch,
+      data: {
+        ...branch.toObject(),
+        qrCodeUrl, // return QR separately (since qrSecret is hidden)
+      },
     });
 
   } catch (err) {
-    console.error("Create branch error:", err);
+    console.error("Create branch error:", err.message);
 
     return res.status(500).json({
       success: false,
       message: "Failed to create branch",
-      error: err.message
+      error: err.message,
     });
   }
 };
