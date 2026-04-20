@@ -1664,7 +1664,7 @@ export const promoteToAdmin = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Promotion failed",
+      message: error.message,
     });
   }
 };
