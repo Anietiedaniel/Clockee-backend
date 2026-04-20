@@ -1553,7 +1553,7 @@ export const updateUserRemoteAccess = async (req, res) => {
 
 export const promoteToAdmin = async (req, res) => {
   try {
-    const { id: targetUserId } = req.params;
+    const { userId: targetUserId } = req.params;
     const requester = req.user;
 
     const requesterRoles = Array.isArray(requester.role)
