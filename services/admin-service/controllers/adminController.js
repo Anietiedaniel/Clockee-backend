@@ -1995,3 +1995,181 @@ export const demoteAdmin = async (req, res) => {
     });
   }
 };
+
+export const adminUpdateUser = async (req, res) => {
+  try {
+    const { id: targetUserId } = req.params;
+    const requester = req.user;
+
+    /* ================= VALIDATE ID ================= */
+
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    /* ================= FETCH TARGET USER ================= */
+
+    const user = await User.findById(targetUserId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    /* ================= NORMALIZE ROLES ================= */
+
+    const requesterRoles = Array.isArray(requester.role)
+      ? requester.role
+      : [requester.role];
+
+    const targetRoles = Array.isArray(user.role)
+      ? user.role
+      : [user.role];
+
+    const isSuperAdmin = requesterRoles.includes("super_admin");
+    const isAdmin = requesterRoles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= SAME INSTITUTION CHECK ================= */
+
+    if (
+      !isSuperAdmin &&
+      requester.institutionId.toString() !==
+        user.institutionId.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    /* ================= FETCH INSTITUTION ================= */
+
+    const institution = await Institution.findById(
+      user.institutionId
+    ).select("owner");
+
+    const ownerId = institution?.owner?.toString();
+
+    const isOwner =
+      ownerId && ownerId === requester.userId.toString();
+
+    const isTargetOwner =
+      ownerId && ownerId === user._id.toString();
+
+    /* ================= BLOCK CRITICAL CASES ================= */
+
+    // ❌ cannot edit super admin
+    if (targetRoles.includes("super_admin")) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot edit super admin",
+      });
+    }
+
+    // ❌ admin cannot edit owner
+    if (!isSuperAdmin && !isOwner && isTargetOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot edit institution owner",
+      });
+    }
+
+    /* ================= ALLOWED FIELDS ================= */
+
+    const {
+      name,
+      phone,
+      address,
+      departmentOrUnit,
+      studentOrStaffId,
+      role, // optional
+    } = req.body;
+
+    /* ================= UPDATE BASIC FIELDS ================= */
+
+    if (name !== undefined) user.name = name;
+    if (phone !== undefined) user.phone = phone;
+    if (address !== undefined) user.address = address;
+    if (departmentOrUnit !== undefined)
+      user.departmentOrUnit = departmentOrUnit;
+    if (studentOrStaffId !== undefined)
+      user.studentOrStaffId = studentOrStaffId;
+
+    /* ================= ROLE UPDATE (STRICT CONTROL) ================= */
+
+    if (role) {
+      if (!Array.isArray(role) || role.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Role must be a non-empty array",
+        });
+      }
+
+      const allowedRoles = ["staff", "student", "admin"];
+
+      const invalidRoles = role.filter(
+        (r) => !allowedRoles.includes(r)
+      );
+
+      if (invalidRoles.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid roles: ${invalidRoles.join(", ")}`,
+        });
+      }
+
+      // 🔥 Only owner or super_admin can assign admin role
+      if (
+        role.includes("admin") &&
+        !isSuperAdmin &&
+        !isOwner
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Only owner can assign admin role",
+        });
+      }
+
+      user.role = role;
+    }
+
+    /* ================= SAVE ================= */
+
+    await user.save();
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      message: "User updated successfully",
+      data: {
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        departmentOrUnit: user.departmentOrUnit,
+        studentOrStaffId: user.studentOrStaffId,
+      },
+    });
+
+  } catch (err) {
+    console.error("Update user error:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};

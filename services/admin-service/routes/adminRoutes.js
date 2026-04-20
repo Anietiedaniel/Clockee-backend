@@ -2,7 +2,7 @@ import express from "express";
 import { protect } from "@clockee/shared";
 import { authorizeAdmin } from "../middleware/authorizeAdmin.js";
 import { generateQrInvite } from "../controllers/inviteController.js";
-import { getPendingUsers,registerViaPublicOnboardingLink, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById,
+import { getPendingUsers,registerViaPublicOnboardingLink, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById,adminUpdateUser,
   reactivateUser, rejectUser, generatePublicOnboardingLink, 
   promoteToAdmin, demoteAdmin,getAllAdmins} from "../controllers/adminController.js";
 
@@ -96,6 +96,10 @@ router.patch(
   authorizeAdmin,
   rejectUser
 );
+
+router.patch("/users/:id/edit",
+   protect, authorizeAdmin, adminUpdateUser);
+
 
 router.patch("/users/:id/remote-access",
    protect, authorizeAdmin, updateUserRemoteAccess);
