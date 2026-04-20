@@ -1672,34 +1672,64 @@ export const promoteToAdmin = async (req, res) => {
 
 export const demoteAdmin = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { id: targetUserId } = req.params;
     const requester = req.user;
 
-    const targetUser = await User.findById(userId);
+    /* ================= VALIDATE ID ================= */
 
-    if (!targetUser) {
-      return res.status(404).json({
-        message: "User not found"
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
       });
     }
 
-    // Prevent modifying super_admin
-    if (targetUser.roles.includes("super_admin")) {
+    /* ================= FETCH TARGET ================= */
+
+    const targetUser = await User.findById(targetUserId);
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    /* ================= NORMALIZE ROLES ================= */
+
+    const targetRoles = Array.isArray(targetUser.role)
+      ? targetUser.role
+      : [targetUser.role];
+
+    const requesterRoles = Array.isArray(requester.role)
+      ? requester.role
+      : [requester.role];
+
+    const isSuperAdmin = requesterRoles.includes("super_admin");
+
+    /* ================= PROTECTION ================= */
+
+    // Prevent modifying super admin
+    if (targetRoles.includes("super_admin")) {
       return res.status(400).json({
-        message: "Cannot modify super admin"
+        success: false,
+        message: "Cannot modify super admin",
       });
     }
 
     // Cross-institution protection
     if (
-      !requester.roles.includes("super_admin") &&
+      !isSuperAdmin &&
       requester.institutionId.toString() !==
         targetUser.institutionId.toString()
     ) {
       return res.status(403).json({
-        message: "You cannot manage users from another institution"
+        success: false,
+        message: "You cannot manage users from another institution",
       });
     }
+
+    /* ================= INSTITUTION CHECK ================= */
 
     const institution = await Institution.findById(
       requester.institutionId
@@ -1707,56 +1737,73 @@ export const demoteAdmin = async (req, res) => {
 
     if (!institution) {
       return res.status(404).json({
-        message: "Institution not found"
+        success: false,
+        message: "Institution not found",
       });
     }
 
     // Prevent demoting institution owner
     if (
+      institution.owner &&
       institution.owner.toString() === targetUser._id.toString()
     ) {
       return res.status(403).json({
-        message: "Cannot demote institution owner"
+        success: false,
+        message: "Cannot demote institution owner",
       });
     }
 
-    // Only owner or super_admin can demote
+    // Only owner or super admin can demote
     if (
-      !requester.roles.includes("super_admin") &&
-      institution.owner.toString() !== requester._id.toString()
+      !isSuperAdmin &&
+      institution.owner.toString() !== requester.userId.toString()
     ) {
       return res.status(403).json({
-        message: "Only institution owner can demote admin"
+        success: false,
+        message: "Only institution owner can demote admin",
       });
     }
 
-    // Ensure target is actually admin
-    if (!targetUser.roles.includes("admin")) {
+    /* ================= ENSURE USER IS ADMIN ================= */
+
+    if (!targetRoles.includes("admin")) {
       return res.status(400).json({
-        message: "User is not an admin"
+        success: false,
+        message: "User is not an admin",
       });
     }
 
-    // Remove admin role
-    targetUser.roles = targetUser.roles.filter(
-      role => role !== "admin"
-    );
+    /* ================= DEMOTE ================= */
 
-    //  ensure user still has at least one role
-    if (targetUser.roles.length === 0) {
-      targetUser.roles.push("staff");
+    const updatedRoles = targetRoles.filter(r => r !== "admin");
+
+    // ensure at least one role remains
+    if (updatedRoles.length === 0) {
+      updatedRoles.push("staff");
     }
+
+    targetUser.role = updatedRoles;
 
     await targetUser.save();
 
-    res.status(200).json({
-      message: "Admin demoted successfully"
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      message: "Admin demoted successfully",
+      data: {
+        userId: targetUser._id,
+        name: targetUser.name,
+        role: targetUser.role,
+      },
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      message: "Demotion failed"
+    console.error("Demotion error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Demotion failed",
     });
   }
 };
