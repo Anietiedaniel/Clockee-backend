@@ -43,54 +43,6 @@ function generateToken({ userId, sessionId, role, institutionId, name, email }) 
   );
 }
 
-export const registerVisitor = async (req, res) => {
-  try {
-    const { name, email, companyName, phone, interest } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ message: "Email required" });
-    }
-
-    // Check DB connection safety
-    const existing = await Visitor.findOne({ email });
-
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: "Visitor already registered ",
-      });
-    }
-
-    await Visitor.create({
-      name,
-      email,
-      companyName,
-      phone,
-      interest,
-    });
-
-    return res.status(201).json({
-      success: true,
-      message: "Successfully registered visitor",
-    });
-
-  } catch (err) {
-    console.error("REGISTER VISITOR ERROR:", err);
-
-    // Handle duplicate key explicitly
-    if (err.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "Email already exists ",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: err.message || "Failed to register visitor",
-    });
-  }
-};
 
 
 export async function registerUser(req, res, next) {
@@ -236,7 +188,7 @@ export const logoutUser = async (req, res) => {
       message: "Logout failed",
     });
   }
-};;
+};
 
 export async function verifyToken(req, res) {
   try {
