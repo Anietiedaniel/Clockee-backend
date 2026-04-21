@@ -7,7 +7,10 @@ import {connectDB} from "@clockee/shared";
 import { startAbsentMarkingJob } from "./jobs/absentMarksJob.js";
 import clockRoutes from "./routes/clockRoutes.js";
 import institutionalSettingController from "./routes/institutionalSettingRoutes.js"
+import cron from "node-cron";
+import fetch from "node-fetch"; // if not available natively
 
+const URL = "https://clockee-clock.onrender.com/health"; // create this route
 
 dotenv.config();
 
@@ -21,6 +24,18 @@ async function start() {
     console.error("Failed to connect to DB. Exiting...");
     process.exit(1);
   }
+
+
+cron.schedule("*/10 * * * *", async () => {
+  try {
+    const res = await fetch(URL);
+    console.log("Ping success:", res.status);
+  } catch (err) {
+    console.error("Ping failed:", err.message);
+  }
+});
+
+
 
   const app = express();
 
