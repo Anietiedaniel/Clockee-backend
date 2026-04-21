@@ -1,6 +1,8 @@
 // server.js
 import dotenv from "dotenv";
 dotenv.config();
+import cron from "node-cron";
+import fetch from "node-fetch"; // if not available natively
 
 import express from "express";
 import morgan from "morgan";
@@ -29,6 +31,19 @@ async function start() {
     console.error("Failed to connect to DB. Exiting...");
     process.exit(1);
   }
+
+
+
+const URL = "https://clockee-admin.onrender.com/health"; // create this route
+
+cron.schedule("*/10 * * * *", async () => {
+  try {
+    const res = await fetch(URL);
+    console.log("Ping success:", res.status);
+  } catch (err) {
+    console.error("Ping failed:", err.message);
+  }
+});
 
   const app = express();
 

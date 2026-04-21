@@ -12,6 +12,10 @@ import shiftRoutes from "./routes/shiftRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import superAdminRoutes from "./routes/superAdminRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import cron from "node-cron";
+import fetch from "node-fetch"; // if not available natively
+
+
 
 // Load environment variables
 dotenv.config();
@@ -28,6 +32,17 @@ if (!process.env.MONGO_URI) {
 async function start() {
   //  Connect to MongoDB before creating app
   await connectDB(process.env.MONGO_URI);
+
+  const URL = "https://clockee-admin.onrender.com/health"; // create this route
+
+cron.schedule("*/10 * * * *", async () => {
+  try {
+    const res = await fetch(URL);
+    console.log("Ping success:", res.status);
+  } catch (err) {
+    console.error("Ping failed:", err.message);
+  }
+});
 
   //  Create Express app
   const app = express();
