@@ -165,13 +165,13 @@ export const createBranch = async (req, res) => {
       });
     }
 
-     const settings = await InstitutionSetting.findOne({ institutionId });
+    //  const settings = await InstitutionSetting.findOne({ institutionId });
 
-    if (!settings?.useBranches) {
-      return res.status(400).json({
-        message: "Branch feature is not enabled for this institution",
-      });
-    }
+    // if (!settings?.useBranches) {
+    //   return res.status(400).json({
+    //     message: "Branch feature is not enabled for this institution",
+    //   });
+    // }
 
     /* ================= GENERATE SECRET ================= */
 
