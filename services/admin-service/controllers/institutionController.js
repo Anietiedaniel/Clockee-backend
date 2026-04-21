@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { Institution,  Branch, User} from "@clockee/shared";
+import { Institution,  Branch, User, InstitutionSetting} from "@clockee/shared";
 import mongoose from "mongoose";
 import crypto from "crypto";
 
@@ -94,18 +94,44 @@ export const getInstitutionProfile = async (req, res) => {
 // both admin and supper admin can do it
 export const createBranch = async (req, res) => {
   try {
-    const { name, address, latitude, longitude } = req.body;
+    const {
+      role,
+      institutionId: adminInstitutionId,
+      userId,
+    } = req.user;
 
-    const { institutionId, userId, role } = req.user;
+    const {
+      institutionId: targetInstitutionId,
+      name,
+      address,
+      latitude,
+      longitude,
+    } = req.body;
 
-    /* ================= ROLE CHECK ================= */
+    /* ================= NORMALIZE ROLES ================= */
 
     const roles = Array.isArray(role) ? role : [role];
 
-    if (!roles.includes("admin") && !roles.includes("super_admin")) {
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: "Not authorized",
+      });
+    }
+
+    /* ================= DETERMINE INSTITUTION ================= */
+
+    const institutionId = isSuperAdmin
+      ? targetInstitutionId
+      : adminInstitutionId;
+
+    if (!institutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Institution ID is required",
       });
     }
 
@@ -128,11 +154,28 @@ export const createBranch = async (req, res) => {
       });
     }
 
+    /* ================= CHECK INSTITUTION EXISTS ================= */
+
+    const institution = await Institution.findById(institutionId);
+
+    if (!institution) {
+      return res.status(404).json({
+        success: false,
+        message: "Institution not found",
+      });
+    }
+
+     const settings = await InstitutionSetting.findOne({ institutionId });
+
+    if (!settings?.useBranches) {
+      return res.status(400).json({
+        message: "Branch feature is not enabled for this institution",
+      });
+    }
+
     /* ================= GENERATE SECRET ================= */
 
     const qrSecret = crypto.randomBytes(16).toString("hex");
-
-    /* ================= CREATE QR DATA ================= */
 
     const qrPayload = JSON.stringify({
       institutionId,
@@ -150,22 +193,30 @@ export const createBranch = async (req, res) => {
 
       location: {
         type: "Point",
-        coordinates: [longitude, latitude], // ✅ IMPORTANT ORDER
+        coordinates: [longitude, latitude],
       },
 
-      qrSecret, // ✅ REQUIRED FIELD
-
-      createdBy: userId, // if your schema allows it
+      qrSecret,
     });
 
-    /* ================= RESPONSE ================= */
+    /* ================= UPDATE META ================= */
+
+    await Institution.findByIdAndUpdate(institutionId, {
+      $inc: { "meta.totalBranches": 1 },
+    });
+
+    /* ================= CLEAN RESPONSE ================= */
+
+    const branchObj = branch.toObject();
+    delete branchObj.qrSecret;
 
     return res.status(201).json({
       success: true,
       message: "Branch created successfully",
       data: {
-        ...branch.toObject(),
-        qrCodeUrl, // return QR separately (since qrSecret is hidden)
+        ...branchObj,
+        qrCodeUrl,
+        createdBy: userId,
       },
     });
 
@@ -179,6 +230,7 @@ export const createBranch = async (req, res) => {
     });
   }
 };
+
 
 // both admin and supper admin can do it
 export const getBranches = async (req, res) => {

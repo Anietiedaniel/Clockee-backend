@@ -86,6 +86,12 @@ expectedWorkHours: {
       default: true,
     },
 
+    useBranches: {
+      type: Boolean,
+      default: false,
+    },
+
+
     /* ================= AUTH / MODES ================= */
 
     qrRefreshSeconds: {

@@ -33,6 +33,14 @@ const userSchema = new mongoose.Schema(
       trim: true 
     },
 
+    branchId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Branch",
+      default: null,
+      index: true,
+    },
+
+
     passwordHash: { 
       type: String, 
       required: true 
