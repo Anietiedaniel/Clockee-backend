@@ -7,7 +7,7 @@ import {
   getBranches,
   // getInstitution,
   updateInstitution, getInstitutionProfile,
-  getDepartmentsOrUnits
+  getDepartmentsOrUnits, updateBranch, reactivateBranch, deactivateBranch
 } from "../controllers/institutionController.js";
 
 

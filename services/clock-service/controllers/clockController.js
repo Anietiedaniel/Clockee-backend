@@ -29,9 +29,7 @@ export const clockAttendance = async (req, res) => {
       ? req.user.role
       : [req.user.role];
 
-    /* ===============================
-       BASIC VALIDATION
-    =============================== */
+    /* ================= BASIC VALIDATION ================= */
 
     const allowedActions = ["clock-in", "clock-out"];
     const allowedModes = [
@@ -68,9 +66,7 @@ export const clockAttendance = async (req, res) => {
     if (mode === "backup_code" && !backupCode)
       return res.status(400).json({ success: false, message: "Backup code required" });
 
-    /* ===============================
-       ADMIN OVERRIDE
-    =============================== */
+    /* ================= ADMIN OVERRIDE ================= */
 
     const isAdmin =
       userRoles.includes("admin") || userRoles.includes("super_admin");
@@ -85,9 +81,7 @@ export const clockAttendance = async (req, res) => {
       }
     }
 
-    /* ===============================
-       FETCH USER
-    =============================== */
+    /* ================= FETCH USER ================= */
 
     const user = await User.findById(userId);
 
@@ -98,9 +92,7 @@ export const clockAttendance = async (req, res) => {
       });
     }
 
-    /* ===============================
-       SETTINGS
-    =============================== */
+    /* ================= SETTINGS ================= */
 
     const institutionSetting = await InstitutionSetting.findOne({
       institutionId: user.institutionId,
@@ -117,17 +109,42 @@ export const clockAttendance = async (req, res) => {
       enforceGeofence: false,
       gpsRadiusMeters: 100,
       officeLocation: null,
+      useBranches: false,
       ...(institutionSetting ? institutionSetting.toObject() : {}),
     };
 
-    /* ===============================
-       GEO CHECK
-    =============================== */
+    /* ================= FETCH BRANCH ================= */
+
+    let branch = null;
+
+    if (settings.useBranches) {
+      if (!user.branchId) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not assigned to any branch",
+        });
+      }
+
+      branch = await Branch.findById(user.branchId).select("+qrSecret");
+
+      if (!branch || !branch.isActive) {
+        return res.status(403).json({
+          success: false,
+          message: "Assigned branch is inactive",
+        });
+      }
+    }
+
+    /* ================= GEO CHECK ================= */
 
     let distanceFromOffice = null;
 
-    if (settings.officeLocation?.coordinates?.length === 2) {
-      const [officeLng, officeLat] = settings.officeLocation.coordinates;
+    const locationSource = settings.useBranches
+      ? branch?.location
+      : settings.officeLocation;
+
+    if (locationSource?.coordinates?.length === 2) {
+      const [officeLng, officeLat] = locationSource.coordinates;
 
       const toRad = (v) => (v * Math.PI) / 180;
       const R = 6378137;
@@ -144,14 +161,43 @@ export const clockAttendance = async (req, res) => {
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       distanceFromOffice = R * c;
 
+      const allowedRadius = settings.useBranches
+        ? branch.radiusMeters
+        : settings.gpsRadiusMeters;
+
       if (
         settings.enforceGeofence &&
         mode !== "admin_override" &&
-        distanceFromOffice > settings.gpsRadiusMeters
+        distanceFromOffice > allowedRadius
       ) {
         return res.status(403).json({
           success: false,
-          message: "Outside allowed location",
+          message: settings.useBranches
+            ? "Outside branch location"
+            : "Outside allowed location",
+        });
+      }
+    }
+
+    /* ================= QR VALIDATION ================= */
+
+    if (mode === "qr" && settings.useBranches) {
+      try {
+        const parsed = JSON.parse(qrCode);
+
+        if (
+          parsed.institutionId !== String(user.institutionId) ||
+          parsed.secret !== branch.qrSecret
+        ) {
+          return res.status(403).json({
+            success: false,
+            message: "Invalid branch QR code",
+          });
+        }
+      } catch {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid QR format",
         });
       }
     }
@@ -161,9 +207,7 @@ export const clockAttendance = async (req, res) => {
 
     let attendance;
 
-    /* ===============================
-       🟢 CLOCK-IN
-    =============================== */
+    /* ================= CLOCK-IN ================= */
 
     if (actionType === "clock-in") {
       const existing = await AttendanceLog.findOne({
@@ -180,47 +224,34 @@ export const clockAttendance = async (req, res) => {
         });
       }
 
-      // ✅ USE SETTINGS TIME
       const [startHour, startMin] = settings.workStartTime.split(":").map(Number);
 
       const expectedStart = moment()
         .tz(settings.timezone)
-        .set({
-          hour: startHour,
-          minute: startMin,
-          second: 0,
-          millisecond: 0,
-        });
+        .set({ hour: startHour, minute: startMin, second: 0 });
 
       const diffMinutes = now.diff(expectedStart, "minutes");
 
       let clockInStatus = "on-time";
 
-      if (diffMinutes < -settings.clockingWindow.earlyMinutes) {
-        clockInStatus = "too-early";
-      } else if (diffMinutes < 0) {
-        clockInStatus = "early";
-      } else if (diffMinutes <= settings.gracePeriodMinutes) {
-        clockInStatus = "on-time";
-      } else if (diffMinutes <= settings.clockingWindow.lateMinutes) {
-        clockInStatus = "late";
-      } else {
-        clockInStatus = "very-late";
-      }
+      if (diffMinutes < -settings.clockingWindow.earlyMinutes) clockInStatus = "too-early";
+      else if (diffMinutes < 0) clockInStatus = "early";
+      else if (diffMinutes <= settings.gracePeriodMinutes) clockInStatus = "on-time";
+      else if (diffMinutes <= settings.clockingWindow.lateMinutes) clockInStatus = "late";
+      else clockInStatus = "very-late";
 
       attendance = await AttendanceLog.create({
         userId,
         institutionId: user.institutionId,
+        branchId: settings.useBranches ? branch._id : null,
         actionType,
         mode,
         gps: { type: "Point", coordinates: [lng, lat] },
         timestamp: now.toDate(),
         date,
-
         status: "present",
         clockInStatus,
         minutesLate: diffMinutes > 0 ? diffMinutes : 0,
-
         distanceFromOffice: distanceFromOffice
           ? Math.round(distanceFromOffice)
           : null,
@@ -229,17 +260,12 @@ export const clockAttendance = async (req, res) => {
       return res.status(201).json({
         success: true,
         message: "Clock-in successful",
-        meta: {
-          clockInStatus,
-          minutesLate: diffMinutes > 0 ? diffMinutes : 0,
-        },
+        meta: { clockInStatus },
         data: attendance,
       });
     }
 
-    /* ===============================
-       🔴 CLOCK-OUT
-    =============================== */
+    /* ================= CLOCK-OUT ================= */
 
     if (actionType === "clock-out") {
       const lastClockIn = await AttendanceLog.findOne({
@@ -275,54 +301,27 @@ export const clockAttendance = async (req, res) => {
         "minutes"
       );
 
-      /* ===== CLOCK-OUT STATUS ===== */
-
       let clockOutStatus = "completed";
-      let expectedEnd = null;
 
-      // SHIFT FIRST
-      if (lastClockIn.shiftId) {
-        const shift = await Shift.findById(lastClockIn.shiftId);
-        if (shift?.endTime) {
-          const [h, m] = shift.endTime.split(":").map(Number);
-          expectedEnd = moment().tz(settings.timezone).set({ hour: h, minute: m });
-        }
-      }
-
-      // FALLBACK
-      if (!expectedEnd && settings.workEndTime) {
+      if (settings.workEndTime) {
         const [h, m] = settings.workEndTime.split(":").map(Number);
-        expectedEnd = moment().tz(settings.timezone).set({ hour: h, minute: m });
-      }
+        const expectedEnd = moment().tz(settings.timezone).set({ hour: h, minute: m });
 
-      if (expectedEnd) {
         if (now.isBefore(expectedEnd)) clockOutStatus = "early_exit";
         else if (now.isAfter(expectedEnd)) clockOutStatus = "overtime";
-      }
-
-      /* ===== UNDERWORK DETECTION ===== */
-
-      const expectedMinutes = (settings.expectedWorkHours || 8) * 60;
-
-      let productivityStatus = "normal";
-
-      if (workDurationMinutes < expectedMinutes * 0.5) {
-        productivityStatus = "underworked";
       }
 
       attendance = await AttendanceLog.create({
         userId,
         institutionId: user.institutionId,
+        branchId: settings.useBranches ? branch._id : null,
         actionType,
         mode,
         gps: { type: "Point", coordinates: [lng, lat] },
         timestamp: now.toDate(),
         date,
-
         clockOutStatus,
         workDurationMinutes,
-        productivityStatus,
-
         distanceFromOffice: distanceFromOffice
           ? Math.round(distanceFromOffice)
           : null,
@@ -331,11 +330,7 @@ export const clockAttendance = async (req, res) => {
       return res.status(201).json({
         success: true,
         message: "Clock-out successful",
-        meta: {
-          workDurationMinutes,
-          clockOutStatus,
-          productivityStatus,
-        },
+        meta: { workDurationMinutes, clockOutStatus },
         data: attendance,
       });
     }
@@ -348,6 +343,7 @@ export const clockAttendance = async (req, res) => {
     });
   }
 };
+
 
 
 export const adminOverrideClock = async (req, res) => {
