@@ -39,4 +39,8 @@ user.remoteAccess.allowed === true
 
 
 auth.controller.js        → login, register, reset password
-user.controller.js        → get profile, update profile, change password
+user.controller.js        → get profile, update profile, change 
+
+
+In getMyProfile
+.populate("branchId", "name address")

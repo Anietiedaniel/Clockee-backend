@@ -165,11 +165,12 @@ export const updateInstitutionSetting = async (req, res) => {
       "enforceStaffId",
       "officeLocation",
 
-      
+      // 🔥 NEW
+      "useBranches",
+
       "workStartTime",
       "workEndTime",
       "minimumWorkMinutes",
-      
     ];
 
     const updates = {};
@@ -187,7 +188,17 @@ export const updateInstitutionSetting = async (req, res) => {
       });
     }
 
-    /* ================= FIELD VALIDATIONS ================= */
+    /* ================= VALIDATIONS ================= */
+
+    if (
+      updates.useBranches !== undefined &&
+      typeof updates.useBranches !== "boolean"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "useBranches must be boolean",
+      });
+    }
 
     if (
       updates.gpsRadiusMeters !== undefined &&
@@ -221,7 +232,7 @@ export const updateInstitutionSetting = async (req, res) => {
       });
     }
 
-    /* ================= TIME VALIDATION (NEW 🔥) ================= */
+    /* ================= TIME VALIDATION ================= */
 
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -275,6 +286,16 @@ export const updateInstitutionSetting = async (req, res) => {
       }
     }
 
+    /* ================= SMART BRANCH LOGIC ================= */
+
+    // 🔥 If disabling branches → remove branch assignment from users
+    if (updates.useBranches === false) {
+      await User.updateMany(
+        { institutionId: targetInstitutionId },
+        { $set: { branchId: null } }
+      );
+    }
+
     /* ================= AUDIT ================= */
 
     updates.lastUpdatedBy = userId;
@@ -310,6 +331,7 @@ export const updateInstitutionSetting = async (req, res) => {
     });
   }
 };
+
 
 
 

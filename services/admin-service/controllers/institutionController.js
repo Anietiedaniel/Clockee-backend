@@ -165,13 +165,13 @@ export const createBranch = async (req, res) => {
       });
     }
 
-    //  const settings = await InstitutionSetting.findOne({ institutionId });
+     const settings = await InstitutionSetting.findOne({ institutionId });
 
-    // if (!settings?.useBranches) {
-    //   return res.status(400).json({
-    //     message: "Branch feature is not enabled for this institution",
-    //   });
-    // }
+    if (!settings?.useBranches) {
+      return res.status(400).json({
+        message: "Branch feature is not enabled for this institution",
+      });
+    }
 
     /* ================= GENERATE SECRET ================= */
 
@@ -235,18 +235,490 @@ export const createBranch = async (req, res) => {
 // both admin and supper admin can do it
 export const getBranches = async (req, res) => {
   try {
-    const { institutionId } = req.user;
+    const {
+      role,
+      institutionId: adminInstitutionId,
+    } = req.user;
 
-    const branches = await Branch.find({ institutionId })
-      .select("name address latitude longitude qrCodeUrl createdAt")
+    const { institutionId: targetInstitutionId } = req.query;
+
+    /* ================= ROLE CHECK ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= DETERMINE INSTITUTION ================= */
+
+    const institutionId = isSuperAdmin
+      ? targetInstitutionId
+      : adminInstitutionId;
+
+    if (!institutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Institution ID is required",
+      });
+    }
+
+    /* ================= CHECK FEATURE ================= */
+
+    const settings = await InstitutionSetting.findOne({ institutionId });
+
+    if (!settings?.useBranches) {
+      return res.status(400).json({
+        success: false,
+        message: "Branches not enabled for this institution",
+      });
+    }
+
+    /* ================= FETCH ================= */
+
+    const branches = await Branch.find({
+      institutionId,
+      isActive: true,
+    })
+      .select("name address location radiusMeters")
       .sort({ createdAt: -1 });
 
-    res.status(200).json(branches);
+    return res.status(200).json({
+      success: true,
+      count: branches.length,
+      data: branches,
+    });
+
   } catch (err) {
-    console.error("Error fetching branches:", err);
-    res.status(500).json({ message: "Server error" });
+    console.error("Get branches error:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch branches",
+    });
   }
 };
+
+export const deactivateBranch = async (req, res) => {
+  try {
+    const { id: branchId } = req.params;
+
+    const {
+      role,
+      institutionId: adminInstitutionId,
+    } = req.user;
+
+    const { institutionId: targetInstitutionId } = req.body;
+
+    /* ================= VALIDATE ID ================= */
+
+    if (!mongoose.Types.ObjectId.isValid(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID",
+      });
+    }
+
+    /* ================= NORMALIZE ROLES ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= DETERMINE INSTITUTION ================= */
+
+    const institutionId = isSuperAdmin
+      ? targetInstitutionId
+      : adminInstitutionId;
+
+    if (!institutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Institution ID is required",
+      });
+    }
+
+    /* ================= FETCH ================= */
+
+    const branch = await Branch.findOne({
+      _id: branchId,
+      institutionId,
+    });
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found",
+      });
+    }
+
+    if (!branch.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Branch already deactivated",
+      });
+    }
+
+    /* ================= SAFETY CHECK ================= */
+
+    const activeUsers = await User.countDocuments({
+      branchId,
+      isActive: true,
+    });
+
+    if (activeUsers > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot deactivate branch with ${activeUsers} active users`,
+      });
+    }
+
+    /* ================= ACTION ================= */
+
+    branch.isActive = false;
+    await branch.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Branch deactivated successfully",
+    });
+
+  } catch (err) {
+    console.error("Deactivate branch error:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to deactivate branch",
+    });
+  }
+};
+
+export const updateBranch = async (req, res) => {
+  try {
+    const { id: branchId } = req.params;
+
+    const {
+      role,
+      institutionId: adminInstitutionId,
+    } = req.user;
+
+    const {
+      institutionId: targetInstitutionId,
+      name,
+      address,
+      latitude,
+      longitude,
+      radiusMeters,
+      regenerateQR,
+    } = req.body;
+
+    /* ================= VALIDATE ID ================= */
+
+    if (!mongoose.Types.ObjectId.isValid(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID",
+      });
+    }
+
+    /* ================= NORMALIZE ROLES ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= DETERMINE INSTITUTION ================= */
+
+    const institutionId = isSuperAdmin
+      ? targetInstitutionId
+      : adminInstitutionId;
+
+    if (!institutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Institution ID is required",
+      });
+    }
+
+    /* ================= VALIDATE INPUT ================= */
+
+    if (
+      !name &&
+      !address &&
+      latitude === undefined &&
+      longitude === undefined &&
+      radiusMeters === undefined &&
+      regenerateQR !== true
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "No update data provided",
+      });
+    }
+
+    if (
+      (latitude !== undefined && typeof latitude !== "number") ||
+      (longitude !== undefined && typeof longitude !== "number")
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude and longitude must be numbers",
+      });
+    }
+
+    if (
+      (latitude !== undefined && longitude === undefined) ||
+      (longitude !== undefined && latitude === undefined)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Both latitude and longitude must be provided",
+      });
+    }
+
+    /* ================= FETCH ================= */
+
+    const branch = await Branch.findOne({
+      _id: branchId,
+      institutionId,
+    }).select("+qrSecret");
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found",
+      });
+    }
+
+    /* ================= UPDATE ================= */
+
+    if (name) branch.name = name.trim();
+    if (address) branch.address = address.trim();
+
+    if (typeof radiusMeters === "number") {
+      branch.radiusMeters = radiusMeters;
+    }
+
+    if (
+      typeof latitude === "number" &&
+      typeof longitude === "number"
+    ) {
+      branch.location.coordinates = [longitude, latitude];
+    }
+
+    /* ================= OPTIONAL QR REGEN ================= */
+
+    let qrCodeUrl = null;
+
+    if (regenerateQR === true) {
+      const newSecret = crypto.randomBytes(16).toString("hex");
+
+      branch.qrSecret = newSecret;
+
+      const qrPayload = JSON.stringify({
+        institutionId,
+        secret: newSecret,
+      });
+
+      qrCodeUrl = await QRCode.toDataURL(qrPayload);
+    }
+
+    await branch.save();
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      message: "Branch updated successfully",
+      data: {
+        branchId: branch._id,
+        name: branch.name,
+        address: branch.address,
+        radiusMeters: branch.radiusMeters,
+        location: branch.location,
+        ...(qrCodeUrl && { qrCodeUrl }),
+      },
+    });
+
+  } catch (err) {
+    console.error("Update branch error:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update branch",
+    });
+  }
+};
+
+export const reactivateBranch = async (req, res) => {
+  try {
+    const { id: branchId } = req.params;
+
+    const branch = await Branch.findById(branchId);
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found",
+      });
+    }
+
+    branch.isActive = true;
+    await branch.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Branch reactivated successfully",
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to reactivate branch",
+    });
+  }
+};
+
+
+
+export const assignUserToBranch = async (req, res) => {
+  try {
+    const { id: targetUserId } = req.params;
+
+    const {
+      role,
+      institutionId: adminInstitutionId,
+    } = req.user;
+
+    const { branchId, institutionId: targetInstitutionId } = req.body;
+
+    /* ================= VALIDATION ================= */
+
+    if (!mongoose.Types.ObjectId.isValid(targetUserId) ||
+        !mongoose.Types.ObjectId.isValid(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid ID",
+      });
+    }
+
+    /* ================= ROLE CHECK ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= DETERMINE INSTITUTION ================= */
+
+    const institutionId = isSuperAdmin
+      ? targetInstitutionId
+      : adminInstitutionId;
+
+    if (!institutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Institution ID is required",
+      });
+    }
+
+    /* ================= CHECK SETTINGS ================= */
+
+    const settings = await InstitutionSetting.findOne({ institutionId });
+
+    if (!settings?.useBranches) {
+      return res.status(400).json({
+        success: false,
+        message: "Branch feature not enabled",
+      });
+    }
+
+    /* ================= FETCH USER ================= */
+
+    const user = await User.findOne({
+      _id: targetUserId,
+      institutionId,
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found in this institution",
+      });
+    }
+
+    /* ================= FETCH BRANCH ================= */
+
+    const branch = await Branch.findOne({
+      _id: branchId,
+      institutionId,
+      isActive: true,
+    });
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found",
+      });
+    }
+
+    /* ================= UPDATE ================= */
+
+    user.branchId = branchId;
+    await user.save();
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      message: "User assigned to branch successfully",
+      data: {
+        userId: user._id,
+        name: user.name,
+        branch: {
+          id: branch._id,
+          name: branch.name,
+        },
+      },
+    });
+
+  } catch (err) {
+    console.error("Assign branch error:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to assign user to branch",
+    });
+  }
+};
+
 
 // both admin and supper admin can do it
 export const updateInstitution = async (req, res) => {
