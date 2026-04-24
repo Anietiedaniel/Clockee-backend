@@ -38,7 +38,7 @@ router.get(
 );
 
 // GET /admin/institutions
-router.get(
+router.patch(
   "/institution/branches/update/:id",
   protect,
   authorizeSuperAdmin,
