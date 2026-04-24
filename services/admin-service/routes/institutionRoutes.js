@@ -53,6 +53,20 @@ router.patch(
   assignUserToBranch
 );
 
+router.patch(
+  "/institution/branches/reactivate/:id",
+  protect,
+  authorizeSuperAdmin,
+  reactivateBranch
+);
+
+router.patch(
+  "/institution/branches/deactivate/:id",
+  protect,
+  authorizeSuperAdmin,
+  deactivateBranch
+);
+
 
 
 export default router;
