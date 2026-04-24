@@ -406,6 +406,170 @@ export const deactivateBranch = async (req, res) => {
   }
 };
 
+// export const updateBranch = async (req, res) => {
+//   try {
+//     const { id: branchId } = req.params;
+
+//     const {
+//       role,
+//       institutionId: adminInstitutionId,
+//     } = req.user;
+
+//     const {
+//       institutionId: targetInstitutionId,
+//       name,
+//       address,
+//       latitude,
+//       longitude,
+//       radiusMeters,
+//       regenerateQR,
+//     } = req.body;
+
+//     /* ================= VALIDATE ID ================= */
+
+//     if (!mongoose.Types.ObjectId.isValid(branchId)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid branch ID",
+//       });
+//     }
+
+//     /* ================= NORMALIZE ROLES ================= */
+
+//     const roles = Array.isArray(role) ? role : [role];
+//     const isSuperAdmin = roles.includes("super_admin");
+//     const isAdmin = roles.includes("admin");
+
+//     if (!isSuperAdmin && !isAdmin) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Not authorized",
+//       });
+//     }
+
+//     /* ================= DETERMINE INSTITUTION ================= */
+
+//     const institutionId = isSuperAdmin
+//       ? targetInstitutionId
+//       : adminInstitutionId;
+
+//     if (!institutionId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Institution ID is required",
+//       });
+//     }
+
+//     /* ================= VALIDATE INPUT ================= */
+
+//     if (
+//       !name &&
+//       !address &&
+//       latitude === undefined &&
+//       longitude === undefined &&
+//       radiusMeters === undefined &&
+//       regenerateQR !== true
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "No update data provided",
+//       });
+//     }
+
+//     if (
+//       (latitude !== undefined && typeof latitude !== "number") ||
+//       (longitude !== undefined && typeof longitude !== "number")
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Latitude and longitude must be numbers",
+//       });
+//     }
+
+//     if (
+//       (latitude !== undefined && longitude === undefined) ||
+//       (longitude !== undefined && latitude === undefined)
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Both latitude and longitude must be provided",
+//       });
+//     }
+
+//     /* ================= FETCH ================= */
+
+//     const branch = await Branch.findOne({
+//       _id: branchId,
+//       institutionId,
+//     }).select("+qrSecret");
+
+//     if (!branch) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Branch not found",
+//       });
+//     }
+
+//     /* ================= UPDATE ================= */
+
+//     if (name) branch.name = name.trim();
+//     if (address) branch.address = address.trim();
+
+//     if (typeof radiusMeters === "number") {
+//       branch.radiusMeters = radiusMeters;
+//     }
+
+//     if (
+//       typeof latitude === "number" &&
+//       typeof longitude === "number"
+//     ) {
+//       branch.location.coordinates = [longitude, latitude];
+//     }
+
+//     /* ================= OPTIONAL QR REGEN ================= */
+
+//     let qrCodeUrl = null;
+
+//     if (regenerateQR === true) {
+//       const newSecret = crypto.randomBytes(16).toString("hex");
+
+//       branch.qrSecret = newSecret;
+
+//       const qrPayload = JSON.stringify({
+//         institutionId,
+//         secret: newSecret,
+//       });
+
+//       qrCodeUrl = await QRCode.toDataURL(qrPayload);
+//     }
+
+//     await branch.save();
+
+//     /* ================= RESPONSE ================= */
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Branch updated successfully",
+//       data: {
+//         branchId: branch._id,
+//         name: branch.name,
+//         address: branch.address,
+//         radiusMeters: branch.radiusMeters,
+//         location: branch.location,
+//         ...(qrCodeUrl && { qrCodeUrl }),
+//       },
+//     });
+
+//   } catch (err) {
+//     console.error("Update branch error:", err.message);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to update branch",
+//     });
+//   }
+// };
+
 export const updateBranch = async (req, res) => {
   try {
     const { id: branchId } = req.params;
@@ -413,6 +577,7 @@ export const updateBranch = async (req, res) => {
     const {
       role,
       institutionId: adminInstitutionId,
+      userId,
     } = req.user;
 
     const {
@@ -434,7 +599,7 @@ export const updateBranch = async (req, res) => {
       });
     }
 
-    /* ================= NORMALIZE ROLES ================= */
+    /* ================= ROLE ================= */
 
     const roles = Array.isArray(role) ? role : [role];
     const isSuperAdmin = roles.includes("super_admin");
@@ -447,7 +612,14 @@ export const updateBranch = async (req, res) => {
       });
     }
 
-    /* ================= DETERMINE INSTITUTION ================= */
+    if (isSuperAdmin && !targetInstitutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "targetInstitutionId is required for super admin",
+      });
+    }
+
+    /* ================= INSTITUTION ================= */
 
     const institutionId = isSuperAdmin
       ? targetInstitutionId
@@ -457,42 +629,6 @@ export const updateBranch = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Institution ID is required",
-      });
-    }
-
-    /* ================= VALIDATE INPUT ================= */
-
-    if (
-      !name &&
-      !address &&
-      latitude === undefined &&
-      longitude === undefined &&
-      radiusMeters === undefined &&
-      regenerateQR !== true
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "No update data provided",
-      });
-    }
-
-    if (
-      (latitude !== undefined && typeof latitude !== "number") ||
-      (longitude !== undefined && typeof longitude !== "number")
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Latitude and longitude must be numbers",
-      });
-    }
-
-    if (
-      (latitude !== undefined && longitude === undefined) ||
-      (longitude !== undefined && latitude === undefined)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Both latitude and longitude must be provided",
       });
     }
 
@@ -510,23 +646,67 @@ export const updateBranch = async (req, res) => {
       });
     }
 
+    /* ================= VALIDATION ================= */
+
+    if (
+      !name &&
+      !address &&
+      latitude === undefined &&
+      longitude === undefined &&
+      radiusMeters === undefined &&
+      regenerateQR !== true
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "No update data provided",
+      });
+    }
+
     /* ================= UPDATE ================= */
 
-    if (name) branch.name = name.trim();
-    if (address) branch.address = address.trim();
+    if (name !== undefined) {
+      const trimmed = name.trim();
+      if (!trimmed) {
+        return res.status(400).json({
+          success: false,
+          message: "Name cannot be empty",
+        });
+      }
+      branch.name = trimmed;
+    }
 
-    if (typeof radiusMeters === "number") {
+    if (address !== undefined) {
+      branch.address = address.trim();
+    }
+
+    if (radiusMeters !== undefined) {
+      if (typeof radiusMeters !== "number" || radiusMeters <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "radiusMeters must be positive",
+        });
+      }
       branch.radiusMeters = radiusMeters;
     }
 
     if (
-      typeof latitude === "number" &&
-      typeof longitude === "number"
+      latitude !== undefined &&
+      longitude !== undefined
     ) {
+      if (
+        typeof latitude !== "number" ||
+        typeof longitude !== "number"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Latitude and longitude must be numbers",
+        });
+      }
+
       branch.location.coordinates = [longitude, latitude];
     }
 
-    /* ================= OPTIONAL QR REGEN ================= */
+    /* ================= QR REGEN ================= */
 
     let qrCodeUrl = null;
 
@@ -536,12 +716,18 @@ export const updateBranch = async (req, res) => {
       branch.qrSecret = newSecret;
 
       const qrPayload = JSON.stringify({
+        branchId: branch._id,
         institutionId,
         secret: newSecret,
       });
 
       qrCodeUrl = await QRCode.toDataURL(qrPayload);
     }
+
+    /* ================= AUDIT ================= */
+
+    branch.updatedBy = userId;
+    branch.updatedAt = new Date();
 
     await branch.save();
 
@@ -569,6 +755,7 @@ export const updateBranch = async (req, res) => {
     });
   }
 };
+
 
 export const reactivateBranch = async (req, res) => {
   try {
