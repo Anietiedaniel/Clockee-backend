@@ -1087,3 +1087,70 @@ export const getDepartmentsOrUnits = async (req, res) => {
 };
 
 
+export const getBranchStaff = async (req, res) => {
+  try {
+    const { branchId } = req.params;
+
+    const { role, institutionId: userInstitutionId } = req.user;
+
+    /* ================= ROLE CHECK ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= VALIDATE BRANCH ID ================= */
+
+    if (!mongoose.Types.ObjectId.isValid(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID",
+      });
+    }
+
+    /* ================= BUILD FILTER ================= */
+
+    const filter = {
+      branchId,
+      isActive: true,
+      role: { $in: ["staff"] }, // only staff
+    };
+
+    /* ================= INSTITUTION SAFETY ================= */
+
+    if (!isSuperAdmin) {
+      filter.institutionId = userInstitutionId;
+    }
+
+    /* ================= FETCH STAFF ================= */
+
+    const staff = await User.find(filter)
+      .select("name email phone role branchId institutionId isActive")
+      .lean();
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      count: staff.length,
+      data: staff,
+    });
+
+  } catch (err) {
+    console.error("Get branch staff error:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch branch staff",
+    });
+  }
+};
+

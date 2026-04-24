@@ -8,7 +8,8 @@ import {
   // getInstitution,
   updateInstitution, getInstitutionProfile,
   getDepartmentsOrUnits, updateBranch, reactivateBranch, deactivateBranch,
-  assignUserToBranch
+  assignUserToBranch,
+  getBranchStaff
 } from "../controllers/institutionController.js";
 
 
@@ -36,6 +37,13 @@ router.get(
   protect,
   authorizeAdmin,
   getDepartmentsOrUnits
+);
+
+router.get(
+  "/institution/branches/:branchId/staff",
+  protect,
+  authorizeAdmin,
+  getBranchStaff
 );
 
 // GET /admin/institutions
