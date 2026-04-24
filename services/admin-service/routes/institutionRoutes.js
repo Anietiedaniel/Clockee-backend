@@ -39,10 +39,10 @@ router.get(
 
 // GET /admin/institutions
 router.get(
-  "/institutions",
+  "/institution/branches/update/:id",
   protect,
   authorizeSuperAdmin,
-
+  updateBranch
 );
 
 
