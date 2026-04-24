@@ -47,7 +47,7 @@ router.patch(
 );
 
 router.patch(
-  "/institution/branches/assign-user/:id",
+  "/institution/branches/:institutionId/assign-user/:id",
   protect,
   authorizeSuperAdmin,
   assignUserToBranch
