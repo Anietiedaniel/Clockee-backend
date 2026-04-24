@@ -788,6 +788,126 @@ export const reactivateBranch = async (req, res) => {
 
 
 
+// export const assignUserToBranch = async (req, res) => {
+//   try {
+//     const { id: targetUserId } = req.params;
+
+//     const {
+//       role,
+//       institutionId: adminInstitutionId,
+//     } = req.user;
+
+//     const { branchId, institutionId: targetInstitutionId } = req.body;
+
+//     /* ================= VALIDATION ================= */
+
+//     if (!mongoose.Types.ObjectId.isValid(targetUserId) ||
+//         !mongoose.Types.ObjectId.isValid(branchId)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid ID",
+//       });
+//     }
+
+//     /* ================= ROLE CHECK ================= */
+
+//     const roles = Array.isArray(role) ? role : [role];
+
+//     const isSuperAdmin = roles.includes("super_admin");
+//     const isAdmin = roles.includes("admin");
+
+//     if (!isSuperAdmin && !isAdmin) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Not authorized",
+//       });
+//     }
+
+//     /* ================= DETERMINE INSTITUTION ================= */
+
+//     const institutionId = isSuperAdmin
+//       ? targetInstitutionId
+//       : adminInstitutionId;
+
+//     if (!institutionId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Institution ID is required",
+//       });
+//     }
+
+//     /* ================= CHECK SETTINGS ================= */
+
+//     const settings = await InstitutionSetting.findOne({ institutionId });
+
+//     if (!settings?.useBranches) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Branch feature not enabled",
+//       });
+//     }
+
+//     /* ================= FETCH USER ================= */
+
+//     const user = await User.findOne({
+//       _id: targetUserId,
+//       institutionId,
+//     });
+
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found in this institution",
+//       });
+//     }
+
+//     /* ================= FETCH BRANCH ================= */
+
+//     const branch = await Branch.findOne({
+//       _id: branchId,
+//       institutionId,
+//       isActive: true,
+//     });
+
+//     if (!branch) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Branch not found",
+//       });
+//     }
+
+//     /* ================= UPDATE ================= */
+
+//     user.branchId = branchId;
+//     await user.save();
+
+//     /* ================= RESPONSE ================= */
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "User assigned to branch successfully",
+//       data: {
+//         userId: user._id,
+//         name: user.name,
+//         branch: {
+//           id: branch._id,
+//           name: branch.name,
+//         },
+//       },
+//     });
+
+//   } catch (err) {
+//     console.error("Assign branch error:", err.message);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to assign user to branch",
+//     });
+//   }
+// };
+
+
+// both admin and supper admin can do it
 export const assignUserToBranch = async (req, res) => {
   try {
     const { id: targetUserId } = req.params;
@@ -801,11 +921,17 @@ export const assignUserToBranch = async (req, res) => {
 
     /* ================= VALIDATION ================= */
 
-    if (!mongoose.Types.ObjectId.isValid(targetUserId) ||
-        !mongoose.Types.ObjectId.isValid(branchId)) {
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid ID",
+        message: "Invalid user ID",
+      });
+    }
+
+    if (branchId && !mongoose.Types.ObjectId.isValid(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID",
       });
     }
 
@@ -836,14 +962,15 @@ export const assignUserToBranch = async (req, res) => {
       });
     }
 
-    /* ================= CHECK SETTINGS ================= */
+    /* ================= SETTINGS CHECK ================= */
 
     const settings = await InstitutionSetting.findOne({ institutionId });
 
-    if (!settings?.useBranches) {
+    // fallback: if no settings → assume branches NOT enabled
+    if (!settings || settings.useBranches !== true) {
       return res.status(400).json({
         success: false,
-        message: "Branch feature not enabled",
+        message: "Branch feature is not enabled for this institution",
       });
     }
 
@@ -861,6 +988,23 @@ export const assignUserToBranch = async (req, res) => {
       });
     }
 
+    /* ================= UNASSIGN CASE ================= */
+    if (!branchId) {
+      user.branchId = null;
+
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "User removed from branch",
+        data: {
+          userId: user._id,
+          name: user.name,
+          branch: null,
+        },
+      });
+    }
+
     /* ================= FETCH BRANCH ================= */
 
     const branch = await Branch.findOne({
@@ -872,7 +1016,7 @@ export const assignUserToBranch = async (req, res) => {
     if (!branch) {
       return res.status(404).json({
         success: false,
-        message: "Branch not found",
+        message: "Branch not found or inactive",
       });
     }
 
@@ -907,7 +1051,6 @@ export const assignUserToBranch = async (req, res) => {
 };
 
 
-// both admin and supper admin can do it
 export const updateInstitution = async (req, res) => {
   try {
     const {

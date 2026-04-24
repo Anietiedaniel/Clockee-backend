@@ -7,7 +7,8 @@ import {
   getBranches,
   // getInstitution,
   updateInstitution, getInstitutionProfile,
-  getDepartmentsOrUnits, updateBranch, reactivateBranch, deactivateBranch
+  getDepartmentsOrUnits, updateBranch, reactivateBranch, deactivateBranch,
+  assignUserToBranch
 } from "../controllers/institutionController.js";
 
 
@@ -43,6 +44,13 @@ router.patch(
   protect,
   authorizeSuperAdmin,
   updateBranch
+);
+
+router.patch(
+  "/institution/branches/assign-user/:id",
+  protect,
+  authorizeSuperAdmin,
+  assignUserToBranch
 );
 
 
