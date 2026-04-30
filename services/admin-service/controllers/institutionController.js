@@ -238,6 +238,7 @@ export const getBranches = async (req, res) => {
     const {
       role,
       institutionId: adminInstitutionId,
+      userId,
     } = req.user;
 
     const { institutionId: targetInstitutionId } = req.query;
@@ -267,6 +268,36 @@ export const getBranches = async (req, res) => {
         success: false,
         message: "Institution ID is required",
       });
+    }
+
+    /* ================= OWNER CHECK ================= */
+
+    if (!isSuperAdmin) {
+      const institution = await Institution.findById(institutionId).select(
+        "owner"
+      );
+
+      if (!institution) {
+        return res.status(404).json({
+          success: false,
+          message: "Institution not found",
+        });
+      }
+
+      if (!institution.owner) {
+        return res.status(400).json({
+          success: false,
+          message: "Institution has no owner assigned",
+        });
+      }
+
+      if (institution.owner.toString() !== userId.toString()) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only the institution owner or super admin can access branches",
+        });
+      }
     }
 
     /* ================= CHECK FEATURE ================= */
