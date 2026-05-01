@@ -1200,3 +1200,143 @@ export const getBranchStaff = async (req, res) => {
   }
 };
 
+
+export const getAllBranchStaff = async (req, res) => {
+  try {
+    const { branchId } = req.params;
+
+    const {
+      role,
+      institutionId: adminInstitutionId,
+    } = req.user;
+
+    /* ================= ROLE NORMALIZATION ================= */
+
+    const roles = Array.isArray(role) ? role : [role];
+
+    const isSuperAdmin = roles.includes("super_admin");
+    const isAdmin = roles.includes("admin");
+
+    if (!isSuperAdmin && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    /* ================= VALIDATE BRANCH ID ================= */
+
+    if (!mongoose.Types.ObjectId.isValid(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID",
+      });
+    }
+
+    /* ================= FETCH BRANCH FIRST =================
+       Important:
+       - Confirms branch exists
+       - Prevents querying random branch IDs
+       - Ensures institution safety
+    ====================================================== */
+
+    const branch = await Branch.findById(branchId)
+      .select("name institutionId isActive")
+      .lean();
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found",
+      });
+    }
+
+    /* ================= ACCESS CONTROL ================= */
+
+    if (
+      !isSuperAdmin &&
+      String(branch.institutionId) !== String(adminInstitutionId)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied for this branch",
+      });
+    }
+
+    /* ================= OPTIONAL STATUS CHECK ================= */
+
+    if (!branch.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Branch is inactive",
+      });
+    }
+
+    /* ================= SETTINGS CHECK =================
+       Prevents fetching branch staff if institution
+       has not enabled branch system
+    =================================================== */
+
+    const settings = await InstitutionSetting.findOne({
+      institutionId: branch.institutionId,
+      isActive: true,
+    }).lean();
+
+    if (!settings || settings.useBranches !== true) {
+      return res.status(400).json({
+        success: false,
+        message: "Branch feature is not enabled for this institution",
+      });
+    }
+
+    /* ================= FILTER =================
+       Includes:
+       - staff
+       - student
+       Excludes:
+       - admin
+       - super_admin
+    ========================================== */
+
+    const filter = {
+      institutionId: branch.institutionId,
+      branchId: branch._id,
+      isActive: true,
+      role: {
+        $in: ["staff", "student"],
+      },
+    };
+
+    /* ================= FETCH USERS ================= */
+
+    const staff = await User.find(filter)
+      .select(
+        "_id name email phone role studentOrStaffId departmentOrUnit branchId institutionId isActive createdAt"
+      )
+      .sort({ name: 1 })
+      .lean();
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      message: `Users fetched successfully for branch: ${branch.name}`,
+      branch: {
+        id: branch._id,
+        name: branch.name,
+      },
+      count: staff.length,
+      data: staff,
+    });
+
+  } catch (err) {
+    console.error("Get branch staff error:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch branch staff",
+      error: err.message,
+    });
+  }
+};
+

@@ -9,7 +9,8 @@ import {
   updateInstitution, getInstitutionProfile,
   getDepartmentsOrUnits, updateBranch, reactivateBranch, deactivateBranch,
   assignUserToBranch,
-  getBranchStaff
+  getBranchStaff,
+  getAllBranchStaff
 } from "../controllers/institutionController.js";
 
 
@@ -45,6 +46,14 @@ router.get(
   authorizeAdmin,
   getBranchStaff
 );
+
+router.get(
+  "/institution/branches/:branchId/users",
+  protect,
+  authorizeAdmin,
+  getAllBranchStaff
+);
+
 
 // GET /admin/institutions
 router.patch(
