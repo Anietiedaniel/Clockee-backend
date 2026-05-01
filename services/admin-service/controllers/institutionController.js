@@ -165,15 +165,32 @@ export const createBranch = async (req, res) => {
       });
     }
 
-     const settings = await InstitutionSetting.findOne({ institutionId });
+    /* ================= OWNER CHECK ================= */
+
+    const isOwner =
+      institution.owner &&
+      String(institution.owner) === String(userId);
+
+    if (!isSuperAdmin && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Only super admin or institution owner can create branches",
+      });
+    }
+
+    /* ================= CHECK FEATURE ENABLED ================= */
+
+    const settings = await InstitutionSetting.findOne({ institutionId });
 
     if (!settings?.useBranches) {
       return res.status(400).json({
+        success: false,
         message: "Branch feature is not enabled for this institution",
       });
     }
 
-    /* ================= GENERATE SECRET ================= */
+    /* ================= GENERATE QR SECRET ================= */
 
     const qrSecret = crypto.randomBytes(16).toString("hex");
 
@@ -190,12 +207,10 @@ export const createBranch = async (req, res) => {
       institutionId,
       name: name.trim(),
       address: address?.trim(),
-
       location: {
         type: "Point",
         coordinates: [longitude, latitude],
       },
-
       qrSecret,
     });
 
