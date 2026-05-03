@@ -39,7 +39,7 @@ function generateToken({ userId, sessionId, role, institutionId, name, email }) 
       email,
     },
     process.env.JWT_SECRET,
-    { expiresIn: "30d" }
+    { expiresIn: "30y" }
   );
 }
 
