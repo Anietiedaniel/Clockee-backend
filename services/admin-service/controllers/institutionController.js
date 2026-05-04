@@ -286,7 +286,9 @@ export const getBranches = async (req, res) => {
     }
 
     /* ================= OWNER CHECK ================= */
-
+    const owner =  await Institution.findById(institutionId).select(
+        "owner"
+      );
     if (!isSuperAdmin) {
       const institution = await Institution.findById(institutionId).select(
         "owner"
@@ -339,7 +341,7 @@ export const getBranches = async (req, res) => {
       success: true,
       count: branches.length,
       data: branches,
-      owner: institution.owner
+      owner_data: owner,
     });
 
   } catch (err) {
@@ -347,7 +349,7 @@ export const getBranches = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch branches",
+      message: "failed to fetch branches",
     });
   }
 };
