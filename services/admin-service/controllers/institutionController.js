@@ -339,6 +339,7 @@ export const getBranches = async (req, res) => {
       success: true,
       count: branches.length,
       data: branches,
+      owner: institution.owner
     });
 
   } catch (err) {
