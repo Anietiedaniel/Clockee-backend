@@ -285,22 +285,25 @@ export const getBranches = async (req, res) => {
       });
     }
 
+    /* ================= FETCH INSTITUTION + OWNER ================= */
+
+    const institution = await Institution.findById(institutionId)
+      .populate({
+        path: "owner",
+        select: "_id name email phone role",
+      })
+      .select("owner name");
+
+    if (!institution) {
+      return res.status(404).json({
+        success: false,
+        message: "Institution not found",
+      });
+    }
+
     /* ================= OWNER CHECK ================= */
-    const owner =  await Institution.findById(institutionId).select(
-        "owner"
-      );
+
     if (!isSuperAdmin) {
-      const institution = await Institution.findById(institutionId).select(
-        "owner"
-      );
-
-      if (!institution) {
-        return res.status(404).json({
-          success: false,
-          message: "Institution not found",
-        });
-      }
-
       if (!institution.owner) {
         return res.status(400).json({
           success: false,
@@ -308,7 +311,7 @@ export const getBranches = async (req, res) => {
         });
       }
 
-      if (institution.owner.toString() !== userId.toString()) {
+      if (institution.owner._id.toString() !== userId.toString()) {
         return res.status(403).json({
           success: false,
           message:
@@ -319,7 +322,9 @@ export const getBranches = async (req, res) => {
 
     /* ================= CHECK FEATURE ================= */
 
-    const settings = await InstitutionSetting.findOne({ institutionId });
+    const settings = await InstitutionSetting.findOne({
+      institutionId,
+    });
 
     if (!settings?.useBranches) {
       return res.status(400).json({
@@ -328,7 +333,7 @@ export const getBranches = async (req, res) => {
       });
     }
 
-    /* ================= FETCH ================= */
+    /* ================= FETCH BRANCHES ================= */
 
     const branches = await Branch.find({
       institutionId,
@@ -337,11 +342,25 @@ export const getBranches = async (req, res) => {
       .select("name address location radiusMeters")
       .sort({ createdAt: -1 });
 
+    /* ================= RESPONSE ================= */
+
     return res.status(200).json({
       success: true,
+      institution: {
+        id: institution._id,
+        name: institution.name,
+      },
+      owner: institution.owner
+        ? {
+            id: institution.owner._id,
+            name: institution.owner.name,
+            email: institution.owner.email,
+            phone: institution.owner.phone,
+            role: institution.owner.role,
+          }
+        : null,
       count: branches.length,
       data: branches,
-      owner_data: owner,
     });
 
   } catch (err) {
@@ -349,10 +368,11 @@ export const getBranches = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "failed to fetch branches",
+      message: "Failed to fetch branches",
     });
   }
 };
+
 
 
 
