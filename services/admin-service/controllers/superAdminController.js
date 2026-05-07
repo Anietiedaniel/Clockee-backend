@@ -352,31 +352,30 @@ export const superCreateAdmin = async (req, res) => {
 //   }
 // };
 
+import mongoose from "mongoose";
+
 export const getAllInstitutions = async (req, res) => {
   try {
-    /* ================= FETCH INSTITUTIONS ================= */
-
-    // ⚠️ Removed populate("owner") because your Institution schema
-    // may not actually have owner as a ref, causing server error.
-    // We fetch raw owner ID safely first.
     const institutions = await Institution.find()
       .select("name type isActive createdAt owner")
       .sort({ createdAt: -1 })
       .lean();
 
-    /* ================= ENRICH ================= */
-
     const enrichedInstitutions = await Promise.all(
       institutions.map(async (institution) => {
         const institutionId = institution._id;
 
-        /* ================= OWNER ================= */
+        /* ================= OWNER SAFE CHECK ================= */
 
         let ownerData = null;
 
-        // Only fetch owner if field exists
-        if (institution.owner) {
-          const owner = await User.findById(institution.owner)
+        if (
+          institution.owner &&
+          mongoose.Types.ObjectId.isValid(String(institution.owner).trim())
+        ) {
+          const owner = await User.findById(
+            String(institution.owner).trim()
+          )
             .select("name email")
             .lean();
 
@@ -387,11 +386,19 @@ export const getAllInstitutions = async (req, res) => {
               email: owner.email,
             };
           }
+        } else {
+          // fallback if owner stored as plain text
+          ownerData = institution.owner
+            ? {
+                id: null,
+                name: String(institution.owner).trim(),
+                email: null,
+              }
+            : null;
         }
 
-        /* ================= USER COUNTS ================= */
+        /* ================= COUNTS ================= */
 
-        // Since role is ARRAY in your schema, use $in
         const adminCount = await User.countDocuments({
           institutionId,
           role: { $in: ["admin"] },
@@ -400,7 +407,7 @@ export const getAllInstitutions = async (req, res) => {
 
         const staffCount = await User.countDocuments({
           institutionId,
-          role: { $in: ["staff", "student"] }, // optional: include students
+          role: { $in: ["staff", "student"] },
           isActive: true,
         });
 
@@ -420,8 +427,6 @@ export const getAllInstitutions = async (req, res) => {
         };
       })
     );
-
-    /* ================= RESPONSE ================= */
 
     return res.status(200).json({
       success: true,
