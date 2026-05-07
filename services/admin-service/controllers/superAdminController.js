@@ -356,29 +356,51 @@ export const getAllInstitutions = async (req, res) => {
   try {
     /* ================= FETCH INSTITUTIONS ================= */
 
+    // ⚠️ Removed populate("owner") because your Institution schema
+    // may not actually have owner as a ref, causing server error.
+    // We fetch raw owner ID safely first.
     const institutions = await Institution.find()
       .select("name type isActive createdAt owner")
-      .populate("owner", "name email")
       .sort({ createdAt: -1 })
       .lean();
 
-    /* ================= ENRICH WITH USER COUNTS ================= */
+    /* ================= ENRICH ================= */
 
     const enrichedInstitutions = await Promise.all(
       institutions.map(async (institution) => {
         const institutionId = institution._id;
 
-        // Count admins (admin only, excluding super_admin unless also admin)
+        /* ================= OWNER ================= */
+
+        let ownerData = null;
+
+        // Only fetch owner if field exists
+        if (institution.owner) {
+          const owner = await User.findById(institution.owner)
+            .select("name email")
+            .lean();
+
+          if (owner) {
+            ownerData = {
+              id: owner._id,
+              name: owner.name,
+              email: owner.email,
+            };
+          }
+        }
+
+        /* ================= USER COUNTS ================= */
+
+        // Since role is ARRAY in your schema, use $in
         const adminCount = await User.countDocuments({
           institutionId,
-          role: "admin",
+          role: { $in: ["admin"] },
           isActive: true,
         });
 
-        // Count staff
         const staffCount = await User.countDocuments({
           institutionId,
-          role: "staff",
+          role: { $in: ["staff", "student"] }, // optional: include students
           isActive: true,
         });
 
@@ -389,13 +411,7 @@ export const getAllInstitutions = async (req, res) => {
           isActive: institution.isActive,
           createdAt: institution.createdAt,
 
-          owner: institution.owner
-            ? {
-                id: institution.owner._id,
-                name: institution.owner.name,
-                email: institution.owner.email,
-              }
-            : null,
+          owner: ownerData,
 
           stats: {
             admins: adminCount,
@@ -412,12 +428,13 @@ export const getAllInstitutions = async (req, res) => {
       total: enrichedInstitutions.length,
       institutions: enrichedInstitutions,
     });
+
   } catch (err) {
     console.error("Get institutions error:", err);
 
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: err.message || "Server error",
     });
   }
 };
