@@ -866,12 +866,158 @@ export const adminOverrideClock = async (req, res) => {
   }
 };
 
+// export const getAttendanceHistory = async (req, res) => {
+//   try {
+//     const { role, institutionId, userId } = req.user;
+
+//     const {
+//       user,
+//       dateFrom,
+//       dateTo,
+//       actionType,
+//       mode,
+//       page = 1,
+//       limit = 10,
+//     } = req.query;
+
+//     /* ===============================
+//        NORMALIZE ROLE
+//     =============================== */
+
+//     const roles = Array.isArray(role) ? role : [role];
+//     const isAdmin = roles.includes("admin");
+//     const isSuperAdmin = roles.includes("super_admin");
+
+//     /* ===============================
+//        USER SCOPE CONTROL
+//     =============================== */
+
+//     let targetUserId = userId;
+
+//     // Admin/SuperAdmin can view other users
+//     if ((isAdmin || isSuperAdmin) && user) {
+//       const foundUser = await User.findOne({
+//         _id: user,
+//         institutionId,
+//       });
+
+//       if (!foundUser) {
+//         return res.status(404).json({
+//           success: false,
+//           message: "User not found in this institution",
+//         });
+//       }
+
+//       targetUserId = user;
+//     }
+
+//     /* ===============================
+//        BUILD QUERY
+//     =============================== */
+
+//     const query = {
+//       institutionId,
+//       userId: targetUserId,
+//     };
+
+//     if (dateFrom || dateTo) {
+//       query.date = {};
+//       if (dateFrom) query.date.$gte = new Date(dateFrom);
+//       if (dateTo) query.date.$lte = new Date(dateTo);
+//     }
+
+//     if (actionType) query.actionType = actionType;
+//     if (mode) query.mode = mode;
+
+//     /* ===============================
+//        FETCH LOGS (Sorted)
+//     =============================== */
+
+//     const logs = await AttendanceLog.find(query)
+//       .sort({ date: -1, timestamp: -1 })
+//       .lean();
+
+//     /* ===============================
+//        GROUP BY DAY
+//     =============================== */
+
+//     const grouped = {};
+
+//     for (const log of logs) {
+//       const dayKey = new Date(log.date).toISOString().split("T")[0];
+
+//       if (!grouped[dayKey]) {
+//         grouped[dayKey] = {
+//           date: dayKey,
+//           clockIn: null,
+//           clockOut: null,
+//         };
+//       }
+
+//       if (log.actionType === "clock-in") {
+//         grouped[dayKey].clockIn = {
+//           time: log.timestamp,
+//           status: log.clockInStatus,
+//           minutesLate: log.minutesLate,
+//           mode: log.mode,
+//         };
+//       }
+
+//       if (log.actionType === "clock-out") {
+//         grouped[dayKey].clockOut = {
+//           time: log.timestamp,
+//           status: log.clockOutStatus,
+//           workDurationMinutes: log.workDurationMinutes,
+//           productivityStatus: log.productivityStatus,
+//           mode: log.mode,
+//         };
+//       }
+//     }
+
+//     /* ===============================
+//        PAGINATION AFTER GROUPING
+//     =============================== */
+
+//     const groupedArray = Object.values(grouped);
+
+//     const total = groupedArray.length;
+//     const parsedLimit = parseInt(limit);
+//     const parsedPage = parseInt(page);
+
+//     const skip = (parsedPage - 1) * parsedLimit;
+
+//     const paginated = groupedArray.slice(skip, skip + parsedLimit);
+
+//     /* ===============================
+//        RESPONSE
+//     =============================== */
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Attendance history fetched successfully",
+//       total,
+//       currentPage: parsedPage,
+//       totalPages: Math.ceil(total / parsedLimit),
+//       data: paginated,
+//     });
+
+//   } catch (err) {
+//     console.error("Error fetching attendance history:", err);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//     });
+//   }
+// };
+
 export const getAttendanceHistory = async (req, res) => {
   try {
-    const { role, institutionId, userId } = req.user;
+    const { role, institutionId: requesterInstitutionId, userId } = req.user;
 
     const {
       user,
+      institutionId: targetInstitutionId,
       dateFrom,
       dateTo,
       actionType,
@@ -885,8 +1031,43 @@ export const getAttendanceHistory = async (req, res) => {
     =============================== */
 
     const roles = Array.isArray(role) ? role : [role];
+
     const isAdmin = roles.includes("admin");
     const isSuperAdmin = roles.includes("super_admin");
+
+    /* ===============================
+       VALIDATE PAGINATION
+    =============================== */
+
+    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+    const parsedLimit = Math.min(
+      100,
+      Math.max(1, parseInt(limit, 10) || 10)
+    );
+
+    /* ===============================
+       DETERMINE INSTITUTION SCOPE
+    =============================== */
+
+    let scopedInstitutionId = requesterInstitutionId;
+
+    if (isSuperAdmin && targetInstitutionId) {
+      if (!mongoose.Types.ObjectId.isValid(targetInstitutionId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid institution ID",
+        });
+      }
+
+      scopedInstitutionId = targetInstitutionId;
+    }
+
+    if (!scopedInstitutionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Institution ID is required",
+      });
+    }
 
     /* ===============================
        USER SCOPE CONTROL
@@ -894,57 +1075,151 @@ export const getAttendanceHistory = async (req, res) => {
 
     let targetUserId = userId;
 
-    // Admin/SuperAdmin can view other users
+    // Admin/SuperAdmin can inspect other users
     if ((isAdmin || isSuperAdmin) && user) {
-      const foundUser = await User.findOne({
+      if (!mongoose.Types.ObjectId.isValid(user)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid user ID",
+        });
+      }
+
+      const userQuery = {
         _id: user,
-        institutionId,
-      });
+        isActive: true,
+      };
+
+      // Admin limited to own institution
+      if (!isSuperAdmin) {
+        userQuery.institutionId = requesterInstitutionId;
+      }
+
+      // Super admin scoped by selected institution if provided
+      if (isSuperAdmin && scopedInstitutionId) {
+        userQuery.institutionId = scopedInstitutionId;
+      }
+
+      const foundUser = await User.findOne(userQuery).select(
+        "_id institutionId"
+      );
 
       if (!foundUser) {
         return res.status(404).json({
           success: false,
-          message: "User not found in this institution",
+          message: "User not found in permitted scope",
         });
       }
 
-      targetUserId = user;
+      targetUserId = foundUser._id;
+      scopedInstitutionId = foundUser.institutionId;
     }
+
+    /* ===============================
+       FETCH SETTINGS (TIMEZONE SAFE)
+    =============================== */
+
+    const setting = await InstitutionSetting.findOne({
+      institutionId: scopedInstitutionId,
+      isActive: true,
+    }).select("timezone");
+
+    const timezone = setting?.timezone || "Africa/Lagos";
 
     /* ===============================
        BUILD QUERY
     =============================== */
 
     const query = {
-      institutionId,
+      institutionId: scopedInstitutionId,
       userId: targetUserId,
+      isActive: true,
     };
 
     if (dateFrom || dateTo) {
       query.date = {};
-      if (dateFrom) query.date.$gte = new Date(dateFrom);
-      if (dateTo) query.date.$lte = new Date(dateTo);
+
+      if (dateFrom) {
+        const start = new Date(dateFrom);
+
+        if (isNaN(start.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid dateFrom",
+          });
+        }
+
+        start.setHours(0, 0, 0, 0);
+        query.date.$gte = start;
+      }
+
+      if (dateTo) {
+        const end = new Date(dateTo);
+
+        if (isNaN(end.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid dateTo",
+          });
+        }
+
+        end.setHours(23, 59, 59, 999);
+        query.date.$lte = end;
+      }
     }
 
-    if (actionType) query.actionType = actionType;
-    if (mode) query.mode = mode;
+    if (actionType) {
+      const allowedActions = ["clock-in", "clock-out"];
+
+      if (!allowedActions.includes(actionType)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid actionType",
+        });
+      }
+
+      query.actionType = actionType;
+    }
+
+    if (mode) {
+      const allowedModes = [
+        "qr",
+        "totp",
+        "silent",
+        "backup_code",
+        "admin_override",
+      ];
+
+      if (!allowedModes.includes(mode)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid mode",
+        });
+      }
+
+      query.mode = mode;
+    }
 
     /* ===============================
-       FETCH LOGS (Sorted)
+       FETCH LOGS
     =============================== */
 
     const logs = await AttendanceLog.find(query)
       .sort({ date: -1, timestamp: -1 })
+      .select(
+        "date timestamp actionType clockInStatus clockOutStatus minutesLate workDurationMinutes mode"
+      )
       .lean();
 
     /* ===============================
-       GROUP BY DAY
+       GROUP BY DAY (TIMEZONE SAFE)
     =============================== */
 
     const grouped = {};
 
     for (const log of logs) {
-      const dayKey = new Date(log.date).toISOString().split("T")[0];
+      const dayKey = moment(log.date)
+        .tz(timezone)
+        .format("YYYY-MM-DD");
 
       if (!grouped[dayKey]) {
         grouped[dayKey] = {
@@ -954,21 +1229,20 @@ export const getAttendanceHistory = async (req, res) => {
         };
       }
 
-      if (log.actionType === "clock-in") {
+      if (log.actionType === "clock-in" && !grouped[dayKey].clockIn) {
         grouped[dayKey].clockIn = {
           time: log.timestamp,
-          status: log.clockInStatus,
-          minutesLate: log.minutesLate,
+          status: log.clockInStatus || null,
+          minutesLate: log.minutesLate || 0,
           mode: log.mode,
         };
       }
 
-      if (log.actionType === "clock-out") {
+      if (log.actionType === "clock-out" && !grouped[dayKey].clockOut) {
         grouped[dayKey].clockOut = {
           time: log.timestamp,
-          status: log.clockOutStatus,
-          workDurationMinutes: log.workDurationMinutes,
-          productivityStatus: log.productivityStatus,
+          status: log.clockOutStatus || null,
+          workDurationMinutes: log.workDurationMinutes || 0,
           mode: log.mode,
         };
       }
@@ -976,13 +1250,14 @@ export const getAttendanceHistory = async (req, res) => {
 
     /* ===============================
        PAGINATION AFTER GROUPING
+       (MVP SAFE — upgrade to aggregation later)
     =============================== */
 
-    const groupedArray = Object.values(grouped);
+    const groupedArray = Object.values(grouped).sort(
+      (a, b) => new Date(b.date) - new Date(a.date)
+    );
 
     const total = groupedArray.length;
-    const parsedLimit = parseInt(limit);
-    const parsedPage = parseInt(page);
 
     const skip = (parsedPage - 1) * parsedLimit;
 
@@ -998,9 +1273,13 @@ export const getAttendanceHistory = async (req, res) => {
       total,
       currentPage: parsedPage,
       totalPages: Math.ceil(total / parsedLimit),
+      filters: {
+        institutionId: scopedInstitutionId,
+        userId: targetUserId,
+        timezone,
+      },
       data: paginated,
     });
-
   } catch (err) {
     console.error("Error fetching attendance history:", err);
 
@@ -1010,7 +1289,6 @@ export const getAttendanceHistory = async (req, res) => {
     });
   }
 };
-
 
 export const syncOfflineLogs = async (req, res) => {
   try {
@@ -1213,61 +1491,466 @@ export const syncOfflineLogs = async (req, res) => {
 
 
 
+// export const getRealTimeStatus = async (req, res) => {
+//   try {
+//     const institutionId = req.user.institutionId;
+//     const { branchId } = req.query;
+
+//     const startOfDay = new Date();
+//     startOfDay.setHours(0, 0, 0, 0);
+
+//     const endOfDay = new Date();
+//     endOfDay.setHours(23, 59, 59, 999);
+
+//     /* ================= USERS ================= */
+
+//     const userFilter = { institutionId, isActive: true };
+//     if (branchId) userFilter.branchId = branchId;
+
+//     const users = await User.find(userFilter)
+//       .select("name role studentOrStaffId departmentOrUnit")
+//       .lean();
+
+//     /* ================= LOGS ================= */
+
+//     const logs = await AttendanceLog.find({
+//       institutionId,
+//       timestamp: { $gte: startOfDay, $lte: endOfDay },
+//     }).lean();
+
+//     /* ================= MAP ================= */
+
+//     const clockInMap = new Map();
+//     const clockOutMap = new Map();
+
+//     logs.forEach(log => {
+//       const userKey = String(log.userId);
+
+//       if (log.actionType === "clock-in") {
+//         clockInMap.set(userKey, log);
+//       }
+
+//       if (log.actionType === "clock-out") {
+//         clockOutMap.set(userKey, log);
+//       }
+//     });
+
+//     /* ================= GROUPS ================= */
+
+//     const onTime = [];
+//     const late = [];
+//     const veryLate = [];
+//     const early = [];
+//     const absent = [];
+//     const notClockedOut = [];
+
+//     for (const user of users) {
+//       const uId = String(user._id);
+
+//       const clockIn = clockInMap.get(uId);
+//       const clockOut = clockOutMap.get(uId);
+
+//       if (!clockIn) {
+//         absent.push(user);
+//         continue;
+//       }
+
+//       const enriched = {
+//         ...user,
+//         clockInStatus: clockIn.clockInStatus,
+//         clockOutStatus: clockOut?.clockOutStatus || null,
+//         clockInTime: clockIn.timestamp,
+//         clockOutTime: clockOut?.timestamp || null,
+//       };
+
+//       // GROUPING
+//       switch (clockIn.clockInStatus) {
+//         case "on-time":
+//           onTime.push(enriched);
+//           break;
+//         case "late":
+//           late.push(enriched);
+//           break;
+//         case "very-late":
+//           veryLate.push(enriched);
+//           break;
+//         case "early":
+//           early.push(enriched);
+//           break;
+//         default:
+//           onTime.push(enriched);
+//       }
+
+//       if (clockIn && !clockOut) {
+//         notClockedOut.push(enriched);
+//       }
+//     }
+
+//     /* ================= RESPONSE ================= */
+
+//     return res.status(200).json({
+//       success: true,
+//       data: {
+//         summary: {
+//           total: users.length,
+//           onTime: onTime.length,
+//           late: late.length,
+//           veryLate: veryLate.length,
+//           early: early.length,
+//           absent: absent.length,
+//           notClockedOut: notClockedOut.length,
+//         },
+//         details: {
+//           onTime,
+//           late,
+//           veryLate,
+//           early,
+//           absent,
+//           notClockedOut,
+//         },
+//       },
+//     });
+
+//   } catch (error) {
+//     console.error("Realtime status error:", error);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch real-time status.",
+//     });
+//   }
+// };
+
+
+
+
+// export const getDashboardSummary = async (req, res) => {
+//   try {
+//     const institutionId = req.user.institutionId;
+
+//     const startOfDay = new Date();
+//     startOfDay.setHours(0, 0, 0, 0);
+
+//     const endOfDay = new Date();
+//     endOfDay.setHours(23, 59, 59, 999);
+
+//     /* ================= USERS ================= */
+
+//     const totalUsers = await User.countDocuments({
+//       institutionId,
+//       isActive: true,
+//     });
+
+//     const pendingApprovals = await User.countDocuments({
+//       institutionId,
+//       role: "pending",
+//     });
+
+//     /* ================= TODAY CLOCK-IN ================= */
+
+//     const todaysClockIns = await AttendanceLog.find({
+//       institutionId,
+//       actionType: "clock-in",
+//       timestamp: { $gte: startOfDay, $lte: endOfDay },
+//     }).select("clockInStatus branchId mode qrType");
+
+//     const onTime = todaysClockIns.filter(l => l.clockInStatus === "on-time").length;
+//     const early = todaysClockIns.filter(l => l.clockInStatus === "early").length;
+//     const late = todaysClockIns.filter(l => l.clockInStatus === "late").length;
+//     const veryLate = todaysClockIns.filter(l => l.clockInStatus === "very-late").length;
+
+//     const present = todaysClockIns.length;
+//     const absent = totalUsers - present;
+
+//     /* ================= TODAY CLOCK-OUT ================= */
+
+//     const todaysClockOuts = await AttendanceLog.find({
+//       institutionId,
+//       actionType: "clock-out",
+//       timestamp: { $gte: startOfDay, $lte: endOfDay },
+//     }).select("clockOutStatus");
+
+//     const completed = todaysClockOuts.filter(l => l.clockOutStatus === "completed").length;
+//     const earlyExit = todaysClockOuts.filter(l => l.clockOutStatus === "early_exit").length;
+//     const overtime = todaysClockOuts.filter(l => l.clockOutStatus === "overtime").length;
+//     const underWork = todaysClockOuts.filter(l => l.clockOutStatus === "under_work").length;
+
+//     /* ================= QR + ADMIN ================= */
+
+//     const qrStatic = todaysClockIns.filter(l => l.qrType === "static").length;
+//     const qrDynamic = todaysClockIns.filter(l => l.qrType === "dynamic").length;
+//     const adminOverrides = todaysClockIns.filter(l => l.mode === "admin_override").length;
+
+//     /* ================= WEEKLY TREND ================= */
+
+//     const today = new Date();
+//     const weeklyTrend = [];
+
+//     for (let i = 6; i >= 0; i--) {
+//       const dayStart = new Date(today);
+//       dayStart.setDate(today.getDate() - i);
+//       dayStart.setHours(0, 0, 0, 0);
+
+//       const dayEnd = new Date(dayStart);
+//       dayEnd.setHours(23, 59, 59, 999);
+
+//       const dayLogs = await AttendanceLog.find({
+//         institutionId,
+//         actionType: "clock-in",
+//         timestamp: { $gte: dayStart, $lte: dayEnd },
+//       }).select("mode qrType");
+
+//       const attendanceCount = dayLogs.length;
+//       const rate = totalUsers
+//         ? ((attendanceCount / totalUsers) * 100).toFixed(1)
+//         : 0;
+
+//       const dayQrStatic = dayLogs.filter(l => l.qrType === "static").length;
+//       const dayQrDynamic = dayLogs.filter(l => l.qrType === "dynamic").length;
+//       const dayAdminOverrides = dayLogs.filter(l => l.mode === "admin_override").length;
+
+//       weeklyTrend.push({
+//         date: dayStart.toISOString().split("T")[0],
+//         attendanceRate: Number(rate),
+//         qrStaticCount: dayQrStatic,
+//         qrDynamicCount: dayQrDynamic,
+//         adminOverrideCount: dayAdminOverrides,
+//       });
+//     }
+
+//     /* ================= TOP BRANCHES ================= */
+
+//     const topBranches = await AttendanceLog.aggregate([
+//       {
+//         $match: {
+//           institutionId,
+//           actionType: "clock-in",
+//           timestamp: { $gte: startOfDay, $lte: endOfDay },
+//         },
+//       },
+//       {
+//         $group: {
+//           _id: "$branchId",
+//           total: { $sum: 1 },
+//           qrStatic: {
+//             $sum: { $cond: [{ $eq: ["$qrType", "static"] }, 1, 0] },
+//           },
+//           qrDynamic: {
+//             $sum: { $cond: [{ $eq: ["$qrType", "dynamic"] }, 1, 0] },
+//           },
+//           adminOverrides: {
+//             $sum: { $cond: [{ $eq: ["$mode", "admin_override"] }, 1, 0] },
+//           },
+//         },
+//       },
+//       { $sort: { total: -1 } },
+//       { $limit: 5 },
+//       {
+//         $lookup: {
+//           from: "branches",
+//           localField: "_id",
+//           foreignField: "_id",
+//           as: "branch",
+//         },
+//       },
+//       { $unwind: "$branch" },
+//       {
+//         $project: {
+//           _id: 0,
+//           branchId: "$branch._id",
+//           branchName: "$branch.name",
+//           total: 1,
+//           qrStatic: 1,
+//           qrDynamic: 1,
+//           adminOverrides: 1,
+//         },
+//       },
+//     ]);
+
+//     /* ================= FINAL RESPONSE ================= */
+
+//     const summary = {
+//       todaySummary: {
+//         totalUsers,
+//         present,
+//         absent,
+
+//         // CLOCK-IN
+//         onTime,
+//         early,
+//         late,
+//         veryLate,
+
+//         // CLOCK-OUT
+//         completed,
+//         earlyExit,
+//         overtime,
+//         underWork,
+
+//         // SYSTEM
+//         qrStatic,
+//         qrDynamic,
+//         adminOverrides,
+//       },
+//       weeklyTrend,
+//       topBranches,
+//       pendingApprovals,
+//     };
+
+//     return res.status(200).json({
+//       success: true,
+//       data: summary,
+//     });
+
+//   } catch (error) {
+//     console.error("Dashboard summary error:", error);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to generate dashboard summary",
+//     });
+//   }
+// };
+
+//  Replace multiple .find() with MongoDB aggregation pipeline (1 query instead of many)
+//  Add caching (Redis)
+//  Add monthly + department analytics
+
 export const getRealTimeStatus = async (req, res) => {
   try {
-    const institutionId = req.user.institutionId;
-    const { branchId } = req.query;
+    const { institutionId, role, userId } = req.user;
+    const { branchId, summaryOnly = "false" } = req.query;
 
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    /* ================= ROLE CHECK ================= */
 
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+    const roles = Array.isArray(role) ? role : [role];
+
+    const isAdmin = roles.includes("admin");
+    const isSuperAdmin = roles.includes("super_admin");
+
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to view real-time attendance",
+      });
+    }
+
+    /* ================= VALIDATE BRANCH ================= */
+
+    if (branchId && !mongoose.Types.ObjectId.isValid(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID",
+      });
+    }
+
+    /* ================= SETTINGS / TIMEZONE ================= */
+
+    const setting = await InstitutionSetting.findOne({
+      institutionId,
+      isActive: true,
+    }).select("timezone");
+
+    const timezone = setting?.timezone || "Africa/Lagos";
+
+    const startOfDay = moment()
+      .tz(timezone)
+      .startOf("day")
+      .toDate();
+
+    const endOfDay = moment()
+      .tz(timezone)
+      .endOf("day")
+      .toDate();
 
     /* ================= USERS ================= */
 
-    const userFilter = { institutionId, isActive: true };
-    if (branchId) userFilter.branchId = branchId;
+    const userFilter = {
+      institutionId,
+      isActive: true,
+      role: {
+        $nin: ["pending", "rejected"],
+      },
+      createdAt: { $lte: endOfDay }, // avoid future/new onboarding issue
+    };
+
+    if (branchId) {
+      userFilter.branchId = branchId;
+    }
 
     const users = await User.find(userFilter)
-      .select("name role studentOrStaffId departmentOrUnit")
+      .select(
+        "name role studentOrStaffId departmentOrUnit branchId createdAt"
+      )
       .lean();
 
-    /* ================= LOGS ================= */
+    /* ================= LOG QUERY ================= */
 
-    const logs = await AttendanceLog.find({
+    const logQuery = {
       institutionId,
-      timestamp: { $gte: startOfDay, $lte: endOfDay },
-    }).lean();
+      isActive: true,
+      timestamp: {
+        $gte: startOfDay,
+        $lte: endOfDay,
+      },
+    };
 
-    /* ================= MAP ================= */
+    if (branchId) {
+      logQuery.branchId = branchId;
+    }
+
+    const logs = await AttendanceLog.find(logQuery)
+      .sort({ timestamp: 1 })
+      .lean();
+
+    /* ================= MAP LATEST CLOCK-IN / OUT ================= */
 
     const clockInMap = new Map();
     const clockOutMap = new Map();
 
-    logs.forEach(log => {
+    for (const log of logs) {
       const userKey = String(log.userId);
 
       if (log.actionType === "clock-in") {
-        clockInMap.set(userKey, log);
+        const existing = clockInMap.get(userKey);
+
+        if (
+          !existing ||
+          new Date(log.timestamp) > new Date(existing.timestamp)
+        ) {
+          clockInMap.set(userKey, log);
+        }
       }
 
       if (log.actionType === "clock-out") {
-        clockOutMap.set(userKey, log);
+        const existing = clockOutMap.get(userKey);
+
+        if (
+          !existing ||
+          new Date(log.timestamp) > new Date(existing.timestamp)
+        ) {
+          clockOutMap.set(userKey, log);
+        }
       }
-    });
+    }
 
     /* ================= GROUPS ================= */
 
+    const tooEarly = [];
+    const early = [];
     const onTime = [];
     const late = [];
     const veryLate = [];
-    const early = [];
     const absent = [];
     const notClockedOut = [];
 
     for (const user of users) {
       const uId = String(user._id);
+
+      /* ================= ONBOARDING SAFETY ================= */
+      if (new Date(user.createdAt) > startOfDay) {
+        continue;
+      }
 
       const clockIn = clockInMap.get(uId);
       const clockOut = clockOutMap.get(uId);
@@ -1278,72 +1961,109 @@ export const getRealTimeStatus = async (req, res) => {
       }
 
       const enriched = {
-        ...user,
-        clockInStatus: clockIn.clockInStatus,
+        _id: user._id,
+        name: user.name,
+        role: user.role,
+        studentOrStaffId: user.studentOrStaffId || null,
+        departmentOrUnit: user.departmentOrUnit || null,
+        branchId: user.branchId || null,
+
+        clockInStatus: clockIn.clockInStatus || null,
         clockOutStatus: clockOut?.clockOutStatus || null,
+
         clockInTime: clockIn.timestamp,
         clockOutTime: clockOut?.timestamp || null,
+
+        mode: clockIn.mode || null,
+        minutesLate: clockIn.minutesLate || 0,
       };
 
-      // GROUPING
+      /* ================= STATUS GROUPING ================= */
+
       switch (clockIn.clockInStatus) {
-        case "on-time":
-          onTime.push(enriched);
+        case "too-early":
+          tooEarly.push(enriched);
           break;
-        case "late":
-          late.push(enriched);
-          break;
-        case "very-late":
-          veryLate.push(enriched);
-          break;
+
         case "early":
           early.push(enriched);
           break;
+
+        case "on-time":
+          onTime.push(enriched);
+          break;
+
+        case "late":
+          late.push(enriched);
+          break;
+
+        case "very-late":
+          veryLate.push(enriched);
+          break;
+
         default:
           onTime.push(enriched);
       }
+
+      /* ================= NOT CLOCKED OUT ================= */
 
       if (clockIn && !clockOut) {
         notClockedOut.push(enriched);
       }
     }
 
+    /* ================= SUMMARY ================= */
+
+    const summary = {
+      total: users.filter(
+        (u) => new Date(u.createdAt) <= startOfDay
+      ).length,
+
+      tooEarly: tooEarly.length,
+      early: early.length,
+      onTime: onTime.length,
+      late: late.length,
+      veryLate: veryLate.length,
+
+      absent: absent.length,
+      notClockedOut: notClockedOut.length,
+    };
+
     /* ================= RESPONSE ================= */
+
+    if (summaryOnly === "true") {
+      return res.status(200).json({
+        success: true,
+        timezone,
+        data: { summary },
+      });
+    }
 
     return res.status(200).json({
       success: true,
+      timezone,
       data: {
-        summary: {
-          total: users.length,
-          onTime: onTime.length,
-          late: late.length,
-          veryLate: veryLate.length,
-          early: early.length,
-          absent: absent.length,
-          notClockedOut: notClockedOut.length,
-        },
+        summary,
         details: {
+          tooEarly,
+          early,
           onTime,
           late,
           veryLate,
-          early,
           absent,
           notClockedOut,
         },
       },
     });
-
   } catch (error) {
     console.error("Realtime status error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch real-time status.",
+      message: "Failed to fetch real-time status",
     });
   }
 };
-
-
 
 
 export const getDashboardSummary = async (req, res) => {
@@ -1356,11 +2076,15 @@ export const getDashboardSummary = async (req, res) => {
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
 
-    /* ================= USERS ================= */
+    /* ================= ELIGIBLE USERS (ONLY STAFF/STUDENTS ACTIVE BEFORE TODAY) ================= */
+
+    const eligibleRoles = ["staff", "student"];
 
     const totalUsers = await User.countDocuments({
       institutionId,
       isActive: true,
+      createdAt: { $lte: endOfDay },
+      role: { $in: eligibleRoles },
     });
 
     const pendingApprovals = await User.countDocuments({
@@ -1376,13 +2100,26 @@ export const getDashboardSummary = async (req, res) => {
       timestamp: { $gte: startOfDay, $lte: endOfDay },
     }).select("clockInStatus branchId mode qrType");
 
-    const onTime = todaysClockIns.filter(l => l.clockInStatus === "on-time").length;
-    const early = todaysClockIns.filter(l => l.clockInStatus === "early").length;
-    const late = todaysClockIns.filter(l => l.clockInStatus === "late").length;
-    const veryLate = todaysClockIns.filter(l => l.clockInStatus === "very-late").length;
+    const onTime = todaysClockIns.filter(
+      (l) => l.clockInStatus === "on-time"
+    ).length;
+
+    const early = todaysClockIns.filter(
+      (l) => l.clockInStatus === "early"
+    ).length;
+
+    const late = todaysClockIns.filter(
+      (l) => l.clockInStatus === "late"
+    ).length;
+
+    const veryLate = todaysClockIns.filter(
+      (l) => l.clockInStatus === "very-late"
+    ).length;
 
     const present = todaysClockIns.length;
-    const absent = totalUsers - present;
+
+    // Prevent negative values
+    const absent = Math.max(totalUsers - present, 0);
 
     /* ================= TODAY CLOCK-OUT ================= */
 
@@ -1392,16 +2129,35 @@ export const getDashboardSummary = async (req, res) => {
       timestamp: { $gte: startOfDay, $lte: endOfDay },
     }).select("clockOutStatus");
 
-    const completed = todaysClockOuts.filter(l => l.clockOutStatus === "completed").length;
-    const earlyExit = todaysClockOuts.filter(l => l.clockOutStatus === "early_exit").length;
-    const overtime = todaysClockOuts.filter(l => l.clockOutStatus === "overtime").length;
-    const underWork = todaysClockOuts.filter(l => l.clockOutStatus === "under_work").length;
+    const completed = todaysClockOuts.filter(
+      (l) => l.clockOutStatus === "completed"
+    ).length;
+
+    const earlyExit = todaysClockOuts.filter(
+      (l) => l.clockOutStatus === "early_exit"
+    ).length;
+
+    const overtime = todaysClockOuts.filter(
+      (l) => l.clockOutStatus === "overtime"
+    ).length;
+
+    const underWork = todaysClockOuts.filter(
+      (l) => l.clockOutStatus === "under_work"
+    ).length;
 
     /* ================= QR + ADMIN ================= */
 
-    const qrStatic = todaysClockIns.filter(l => l.qrType === "static").length;
-    const qrDynamic = todaysClockIns.filter(l => l.qrType === "dynamic").length;
-    const adminOverrides = todaysClockIns.filter(l => l.mode === "admin_override").length;
+    const qrStatic = todaysClockIns.filter(
+      (l) => l.qrType === "static"
+    ).length;
+
+    const qrDynamic = todaysClockIns.filter(
+      (l) => l.qrType === "dynamic"
+    ).length;
+
+    const adminOverrides = todaysClockIns.filter(
+      (l) => l.mode === "admin_override"
+    ).length;
 
     /* ================= WEEKLY TREND ================= */
 
@@ -1416,6 +2172,15 @@ export const getDashboardSummary = async (req, res) => {
       const dayEnd = new Date(dayStart);
       dayEnd.setHours(23, 59, 59, 999);
 
+      /* ===== ELIGIBLE USERS FOR THAT DAY ===== */
+      const eligibleUsersForDay = await User.countDocuments({
+        institutionId,
+        isActive: true,
+        createdAt: { $lte: dayEnd },
+        role: { $in: eligibleRoles },
+      });
+
+      /* ===== CLOCK-INS FOR THAT DAY ===== */
       const dayLogs = await AttendanceLog.find({
         institutionId,
         actionType: "clock-in",
@@ -1423,16 +2188,28 @@ export const getDashboardSummary = async (req, res) => {
       }).select("mode qrType");
 
       const attendanceCount = dayLogs.length;
-      const rate = totalUsers
-        ? ((attendanceCount / totalUsers) * 100).toFixed(1)
+
+      const rate = eligibleUsersForDay
+        ? ((attendanceCount / eligibleUsersForDay) * 100).toFixed(1)
         : 0;
 
-      const dayQrStatic = dayLogs.filter(l => l.qrType === "static").length;
-      const dayQrDynamic = dayLogs.filter(l => l.qrType === "dynamic").length;
-      const dayAdminOverrides = dayLogs.filter(l => l.mode === "admin_override").length;
+      const dayQrStatic = dayLogs.filter(
+        (l) => l.qrType === "static"
+      ).length;
+
+      const dayQrDynamic = dayLogs.filter(
+        (l) => l.qrType === "dynamic"
+      ).length;
+
+      const dayAdminOverrides = dayLogs.filter(
+        (l) => l.mode === "admin_override"
+      ).length;
 
       weeklyTrend.push({
         date: dayStart.toISOString().split("T")[0],
+        eligibleUsers: eligibleUsersForDay,
+        present: attendanceCount,
+        absent: Math.max(eligibleUsersForDay - attendanceCount, 0),
         attendanceRate: Number(rate),
         qrStaticCount: dayQrStatic,
         qrDynamicCount: dayQrDynamic,
@@ -1455,13 +2232,19 @@ export const getDashboardSummary = async (req, res) => {
           _id: "$branchId",
           total: { $sum: 1 },
           qrStatic: {
-            $sum: { $cond: [{ $eq: ["$qrType", "static"] }, 1, 0] },
+            $sum: {
+              $cond: [{ $eq: ["$qrType", "static"] }, 1, 0],
+            },
           },
           qrDynamic: {
-            $sum: { $cond: [{ $eq: ["$qrType", "dynamic"] }, 1, 0] },
+            $sum: {
+              $cond: [{ $eq: ["$qrType", "dynamic"] }, 1, 0],
+            },
           },
           adminOverrides: {
-            $sum: { $cond: [{ $eq: ["$mode", "admin_override"] }, 1, 0] },
+            $sum: {
+              $cond: [{ $eq: ["$mode", "admin_override"] }, 1, 0],
+            },
           },
         },
       },
@@ -1514,8 +2297,11 @@ export const getDashboardSummary = async (req, res) => {
         qrDynamic,
         adminOverrides,
       },
+
       weeklyTrend,
+
       topBranches,
+
       pendingApprovals,
     };
 
@@ -1523,7 +2309,6 @@ export const getDashboardSummary = async (req, res) => {
       success: true,
       data: summary,
     });
-
   } catch (error) {
     console.error("Dashboard summary error:", error);
 
@@ -1534,10 +2319,219 @@ export const getDashboardSummary = async (req, res) => {
   }
 };
 
-//  Replace multiple .find() with MongoDB aggregation pipeline (1 query instead of many)
-//  Add caching (Redis)
-//  Add monthly + department analytics
+// export const getStaffDashboardOverview = async (req, res) => {
+//   try {
+//     const userId = req.user.userId || req.user.id;
 
+//     /* ================= FETCH USER ================= */
+
+//     const user = await User.findById(userId).select(
+//       "name avatar role institutionId"
+//     );
+
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found",
+//       });
+//     }
+
+//     /* ================= SETTINGS ================= */
+
+//     const setting = await InstitutionSetting.findOne({
+//       institutionId: user.institutionId,
+//     });
+
+//     const timezone = setting?.timezone || "Africa/Lagos";
+//     const expectedDailyHours = setting?.expectedDailyHours || 8;
+
+//     const now = moment().tz(timezone);
+//     const todayStart = now.clone().startOf("day").toDate();
+
+//     /* ================= TODAY LOGS ================= */
+
+//     const todayLogs = await AttendanceLog.find({
+//       userId,
+//       date: todayStart,
+//     }).sort({ timestamp: 1 });
+
+//     const clockIn = todayLogs.find((l) => l.actionType === "clock-in");
+//     const clockOut = todayLogs.find((l) => l.actionType === "clock-out");
+
+//     /* ================= WORK HOURS ================= */
+
+//     let totalWorkedToday = 0;
+
+//     if (clockIn && clockOut) {
+//       totalWorkedToday = (clockOut.workDurationMinutes || 0) / 60;
+//     } else if (clockIn && !clockOut) {
+//       totalWorkedToday =
+//         now.diff(moment(clockIn.timestamp), "minutes") / 60;
+//     }
+
+//     /* ================= CLOCK-IN STATUS ================= */
+
+//     let clockInStatus = null;
+//     let minutesLate = 0;
+
+//     if (clockIn) {
+//       minutesLate = clockIn.minutesLate || 0;
+//       clockInStatus = minutesLate > 0 ? "late" : "on-time";
+//     }
+
+//     /* ================= CLOCK-OUT STATUS ================= */
+
+//     let clockOutStatus = null;
+//     let underWorked = false;
+
+//     if (clockOut && setting?.workEndTime) {
+//       const [endHour, endMin] = setting.workEndTime.split(":");
+
+//       const expectedEnd = moment(clockOut.timestamp)
+//         .tz(timezone)
+//         .set({ hour: endHour, minute: endMin });
+
+//       if (moment(clockOut.timestamp).isBefore(expectedEnd)) {
+//         underWorked = true;
+//         clockOutStatus = "early";
+//       } else {
+//         clockOutStatus = "normal";
+//       }
+//     }
+
+//     /* ================= REMAINING HOURS ================= */
+
+//     let remainingHours = 0;
+
+//     if (!clockIn) {
+//       remainingHours = expectedDailyHours;
+//     } else if (clockIn && !clockOut) {
+//       remainingHours = Math.max(0, expectedDailyHours - totalWorkedToday);
+//     }
+
+//     /* ================= WEEK RANGE ================= */
+
+//     const weekStart = now.clone().startOf("isoWeek").toDate();
+//     const weekEnd = now.clone().endOf("isoWeek").toDate();
+
+//     const weekClockOutLogs = await AttendanceLog.find({
+//       userId,
+//       timestamp: { $gte: weekStart, $lte: weekEnd },
+//       actionType: "clock-out",
+//     });
+
+//     /* ================= WEEKLY TREND ================= */
+
+//     const weeklyMap = {};
+
+//     weekClockOutLogs.forEach((log) => {
+//       const day = moment(log.timestamp)
+//         .tz(timezone)
+//         .format("ddd");
+
+//       const hours = (log.workDurationMinutes || 0) / 60;
+
+//       weeklyMap[day] = (weeklyMap[day] || 0) + hours;
+//     });
+
+//     const weeklyTrend = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+//       .map((day) => ({
+//         day,
+//         hours: Number((weeklyMap[day] || 0).toFixed(2)),
+//       }))
+//       .filter((d) => d.hours > 0);
+
+//     /* ================= SUMMARY ================= */
+
+//     const totalHoursWeek =
+//       weekClockOutLogs.reduce(
+//         (acc, log) => acc + (log.workDurationMinutes || 0),
+//         0
+//       ) / 60;
+
+//     const presentDays = weekClockOutLogs.length;
+
+//     const lateDays = await AttendanceLog.countDocuments({
+//       userId,
+//       timestamp: { $gte: weekStart, $lte: weekEnd },
+//       minutesLate: { $gt: 0 },
+//       actionType: "clock-in",
+//     });
+
+//     const workingDaysCount = setting?.workingDays?.length || 5;
+
+//     const absentDays = Math.max(0, workingDaysCount - presentDays);
+
+//     const attendanceRate =
+//       workingDaysCount > 0
+//         ? Math.round((presentDays / workingDaysCount) * 100)
+//         : 0;
+
+//     const overtimeHours =
+//       totalHoursWeek > expectedDailyHours * workingDaysCount
+//         ? totalHoursWeek - expectedDailyHours * workingDaysCount
+//         : 0;
+
+//     /* ================= RESPONSE ================= */
+
+//     return res.status(200).json({
+//       success: true,
+//       data: {
+//         user: {
+//           _id: user._id,
+//           name: user.name,
+//           avatar: user.avatar || null,
+//           role: user.role,
+//         },
+
+//         /* ✅ CLEAN TODAY STATUS */
+//         todayStatus: {
+//           clockedIn: !!clockIn,
+//           clockInTime: clockIn ? clockIn.timestamp : null,
+//           clockInStatus,
+//           minutesLate,
+
+//           clockedOut: !!clockOut,
+//           clockOutTime: clockOut ? clockOut.timestamp : null,
+//           clockOutStatus,
+
+//           underWorked,
+
+//           totalWorkedToday: Number(totalWorkedToday.toFixed(2)),
+//           expectedDailyHours,
+//           remainingHours: Number(remainingHours.toFixed(2)),
+//         },
+
+//         /* ✅ SUMMARY */
+//         summary: {
+//           attendanceRate,
+//           lateDays,
+//           absentDays,
+//           overtimeHours: Number(overtimeHours.toFixed(2)),
+//           totalHoursWeek: Number(totalHoursWeek.toFixed(2)),
+//           presentDays,
+//           totalWorkingDays: workingDaysCount,
+//         },
+
+//         weeklyTrend,
+
+//         notifications: {
+//           unread: 0,
+//         },
+//       },
+//     });
+
+//   } catch (error) {
+//     console.error("Dashboard error:", error);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to load dashboard",
+//     });
+//   }
+// };
+
+// interesting
 
 export const getStaffDashboardOverview = async (req, res) => {
   try {
@@ -1546,13 +2540,13 @@ export const getStaffDashboardOverview = async (req, res) => {
     /* ================= FETCH USER ================= */
 
     const user = await User.findById(userId).select(
-      "name avatar role institutionId"
+      "name avatar role institutionId createdAt isActive"
     );
 
-    if (!user) {
+    if (!user || !user.isActive) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: "User not found or inactive",
       });
     }
 
@@ -1560,25 +2554,39 @@ export const getStaffDashboardOverview = async (req, res) => {
 
     const setting = await InstitutionSetting.findOne({
       institutionId: user.institutionId,
+      isActive: true,
     });
 
     const timezone = setting?.timezone || "Africa/Lagos";
-    const expectedDailyHours = setting?.expectedDailyHours || 8;
+
+    // FIX: your schema uses expectedWorkHours, not expectedDailyHours
+    const expectedDailyHours = setting?.expectedWorkHours || 8;
+
+    const workingDays = setting?.workingDays || [
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+    ];
 
     const now = moment().tz(timezone);
+
     const todayStart = now.clone().startOf("day").toDate();
+    const todayEnd = now.clone().endOf("day").toDate();
 
     /* ================= TODAY LOGS ================= */
 
     const todayLogs = await AttendanceLog.find({
       userId,
       date: todayStart,
+      isActive: true,
     }).sort({ timestamp: 1 });
 
     const clockIn = todayLogs.find((l) => l.actionType === "clock-in");
     const clockOut = todayLogs.find((l) => l.actionType === "clock-out");
 
-    /* ================= WORK HOURS ================= */
+    /* ================= WORK HOURS TODAY ================= */
 
     let totalWorkedToday = 0;
 
@@ -1586,7 +2594,7 @@ export const getStaffDashboardOverview = async (req, res) => {
       totalWorkedToday = (clockOut.workDurationMinutes || 0) / 60;
     } else if (clockIn && !clockOut) {
       totalWorkedToday =
-        now.diff(moment(clockIn.timestamp), "minutes") / 60;
+        now.diff(moment(clockIn.timestamp).tz(timezone), "minutes") / 60;
     }
 
     /* ================= CLOCK-IN STATUS ================= */
@@ -1596,7 +2604,7 @@ export const getStaffDashboardOverview = async (req, res) => {
 
     if (clockIn) {
       minutesLate = clockIn.minutesLate || 0;
-      clockInStatus = minutesLate > 0 ? "late" : "on-time";
+      clockInStatus = clockIn.clockInStatus || (minutesLate > 0 ? "late" : "on-time");
     }
 
     /* ================= CLOCK-OUT STATUS ================= */
@@ -1604,18 +2612,11 @@ export const getStaffDashboardOverview = async (req, res) => {
     let clockOutStatus = null;
     let underWorked = false;
 
-    if (clockOut && setting?.workEndTime) {
-      const [endHour, endMin] = setting.workEndTime.split(":");
+    if (clockOut) {
+      clockOutStatus = clockOut.clockOutStatus || null;
 
-      const expectedEnd = moment(clockOut.timestamp)
-        .tz(timezone)
-        .set({ hour: endHour, minute: endMin });
-
-      if (moment(clockOut.timestamp).isBefore(expectedEnd)) {
-        underWorked = true;
-        clockOutStatus = "early";
-      } else {
-        clockOutStatus = "normal";
+      if (clockOut.workDurationMinutes) {
+        underWorked = clockOut.workDurationMinutes < expectedDailyHours * 60;
       }
     }
 
@@ -1631,13 +2632,40 @@ export const getStaffDashboardOverview = async (req, res) => {
 
     /* ================= WEEK RANGE ================= */
 
-    const weekStart = now.clone().startOf("isoWeek").toDate();
-    const weekEnd = now.clone().endOf("isoWeek").toDate();
+    const weekStart = now.clone().startOf("isoWeek");
+    const weekEnd = now.clone().endOf("isoWeek");
+
+    /* ================= USER START SAFETY ================= */
+    // Prevent counting days before user joined
+    const employmentStart = moment(user.createdAt)
+      .tz(timezone)
+      .startOf("day");
+
+    const effectiveWeekStart = moment.max(
+      weekStart.clone(),
+      employmentStart.clone()
+    );
+
+    /* ================= WEEK LOGS ================= */
 
     const weekClockOutLogs = await AttendanceLog.find({
       userId,
-      timestamp: { $gte: weekStart, $lte: weekEnd },
       actionType: "clock-out",
+      isActive: true,
+      timestamp: {
+        $gte: effectiveWeekStart.toDate(),
+        $lte: weekEnd.toDate(),
+      },
+    });
+
+    const weekClockInLogs = await AttendanceLog.find({
+      userId,
+      actionType: "clock-in",
+      isActive: true,
+      timestamp: {
+        $gte: effectiveWeekStart.toDate(),
+        $lte: weekEnd.toDate(),
+      },
     });
 
     /* ================= WEEKLY TREND ================= */
@@ -1645,9 +2673,7 @@ export const getStaffDashboardOverview = async (req, res) => {
     const weeklyMap = {};
 
     weekClockOutLogs.forEach((log) => {
-      const day = moment(log.timestamp)
-        .tz(timezone)
-        .format("ddd");
+      const day = moment(log.timestamp).tz(timezone).format("ddd");
 
       const hours = (log.workDurationMinutes || 0) / 60;
 
@@ -1661,7 +2687,56 @@ export const getStaffDashboardOverview = async (req, res) => {
       }))
       .filter((d) => d.hours > 0);
 
-    /* ================= SUMMARY ================= */
+    /* ================= PRESENT DAYS ================= */
+    // Count unique days with clock-in, not raw log count
+    const uniquePresentDays = new Set(
+      weekClockInLogs.map((log) =>
+        moment(log.timestamp).tz(timezone).format("YYYY-MM-DD")
+      )
+    );
+
+    const presentDays = uniquePresentDays.size;
+
+    /* ================= LATE DAYS ================= */
+
+    const uniqueLateDays = new Set(
+      weekClockInLogs
+        .filter((log) => (log.minutesLate || 0) > 0)
+        .map((log) =>
+          moment(log.timestamp).tz(timezone).format("YYYY-MM-DD")
+        )
+    );
+
+    const lateDays = uniqueLateDays.size;
+
+    /* ================= ELIGIBLE WORKING DAYS ================= */
+
+    let eligibleWorkingDays = 0;
+
+    const cursor = effectiveWeekStart.clone();
+
+    while (cursor.isSameOrBefore(weekEnd, "day")) {
+      const dayName = cursor.format("ddd");
+
+      if (workingDays.includes(dayName)) {
+        eligibleWorkingDays++;
+      }
+
+      cursor.add(1, "day");
+    }
+
+    /* ================= ABSENT DAYS ================= */
+
+    const absentDays = Math.max(0, eligibleWorkingDays - presentDays);
+
+    /* ================= ATTENDANCE RATE ================= */
+
+    const attendanceRate =
+      eligibleWorkingDays > 0
+        ? Math.round((presentDays / eligibleWorkingDays) * 100)
+        : 0;
+
+    /* ================= TOTAL HOURS ================= */
 
     const totalHoursWeek =
       weekClockOutLogs.reduce(
@@ -1669,27 +2744,13 @@ export const getStaffDashboardOverview = async (req, res) => {
         0
       ) / 60;
 
-    const presentDays = weekClockOutLogs.length;
+    /* ================= OVERTIME ================= */
 
-    const lateDays = await AttendanceLog.countDocuments({
-      userId,
-      timestamp: { $gte: weekStart, $lte: weekEnd },
-      minutesLate: { $gt: 0 },
-      actionType: "clock-in",
-    });
-
-    const workingDaysCount = setting?.workingDays?.length || 5;
-
-    const absentDays = Math.max(0, workingDaysCount - presentDays);
-
-    const attendanceRate =
-      workingDaysCount > 0
-        ? Math.round((presentDays / workingDaysCount) * 100)
-        : 0;
+    const expectedWeeklyHours = expectedDailyHours * eligibleWorkingDays;
 
     const overtimeHours =
-      totalHoursWeek > expectedDailyHours * workingDaysCount
-        ? totalHoursWeek - expectedDailyHours * workingDaysCount
+      totalHoursWeek > expectedWeeklyHours
+        ? totalHoursWeek - expectedWeeklyHours
         : 0;
 
     /* ================= RESPONSE ================= */
@@ -1704,7 +2765,6 @@ export const getStaffDashboardOverview = async (req, res) => {
           role: user.role,
         },
 
-        /* ✅ CLEAN TODAY STATUS */
         todayStatus: {
           clockedIn: !!clockIn,
           clockInTime: clockIn ? clockIn.timestamp : null,
@@ -1722,7 +2782,6 @@ export const getStaffDashboardOverview = async (req, res) => {
           remainingHours: Number(remainingHours.toFixed(2)),
         },
 
-        /* ✅ SUMMARY */
         summary: {
           attendanceRate,
           lateDays,
@@ -1730,7 +2789,7 @@ export const getStaffDashboardOverview = async (req, res) => {
           overtimeHours: Number(overtimeHours.toFixed(2)),
           totalHoursWeek: Number(totalHoursWeek.toFixed(2)),
           presentDays,
-          totalWorkingDays: workingDaysCount,
+          totalWorkingDays: eligibleWorkingDays,
         },
 
         weeklyTrend,
@@ -1740,7 +2799,6 @@ export const getStaffDashboardOverview = async (req, res) => {
         },
       },
     });
-
   } catch (error) {
     console.error("Dashboard error:", error);
 
@@ -1750,7 +2808,6 @@ export const getStaffDashboardOverview = async (req, res) => {
     });
   }
 };
-
 
 export const getUserWorkSchedule = async (req, res) => {
   try {
