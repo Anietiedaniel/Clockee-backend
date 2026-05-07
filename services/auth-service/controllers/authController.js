@@ -167,6 +167,136 @@ export async function registerUser(req, res, next) {
 //   }
 // }
 
+// export async function loginUser(req, res, next) {
+//   try {
+//     const { email, password, deviceInfo } = req.body;
+
+//     /* ================= BASIC VALIDATION ================= */
+
+//     if (!email || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email and password are required",
+//       });
+//     }
+
+//     /* ================= FETCH USER ================= */
+
+//     const user = await User.findOne({
+//       email: email.toLowerCase().trim(),
+//     });
+
+//     if (!user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+
+//     /* ================= ACCOUNT STATUS ================= */
+
+//     if (!user.isActive) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Account is deactivated",
+//       });
+//     }
+
+//     if (user.role?.includes("pending")) {
+//       return res.status(403).json({
+//         success: false,
+//         status: "PENDING_APPROVAL",
+//         message: "Account awaiting approval by admin",
+//       });
+//     }
+
+//     if (user.role?.includes("rejected")) {
+//       return res.status(403).json({
+//         success: false,
+//         status: "REJECTED",
+//         message: "Account access denied",
+//       });
+//     }
+
+//     /* ================= PASSWORD CHECK ================= */
+
+//     const isMatch = await verifyPassword(password, user.passwordHash);
+
+//     if (!isMatch) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+
+//     /* ================= TRUE ONE-TIME LOGIN ================= */
+//     // Once activeSession exists, NO second login allowed from ANY device
+//     // Only password reset should clear activeSession
+
+//     if (user.activeSession?.sessionId) {
+//       return res.status(403).json({
+//         success: false,
+//         status: "ALREADY_LOGGED_IN",
+//         message:
+//           "This account is already logged in on a device.",
+//         activeDevice: user.activeSession.deviceInfo || "unknown-device",
+//         lastLogin: user.activeSession.lastLogin,
+//       });
+//     }
+
+//     /* ================= NEW SESSION ================= */
+
+//     const sessionId = uuidv4();
+
+//     user.activeSession = {
+//       sessionId,
+//       deviceInfo: deviceInfo?.trim() || "unknown-device",
+//       lastLogin: new Date(),
+//     };
+
+//     await user.save();
+
+//     /* ================= TOKEN ================= */
+
+//     const token = generateToken({
+//       userId: user._id,
+//       sessionId, // MUST be validated in protect middleware
+//       role: user.role,
+//       institutionId: user.institutionId,
+//       name: user.name,
+//       email: user.email,
+//     });
+
+//     /* ================= RESPONSE ================= */
+
+//     return res.status(200).json({
+//       success: true,
+//       message:
+//         "Login successful. This device is now permanently linked until password reset.",
+
+//       token,
+
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         role: user.role,
+//         institutionId: user.institutionId,
+//       },
+
+//       session: {
+//         sessionId: user.activeSession.sessionId,
+//         deviceInfo: user.activeSession.deviceInfo,
+//         lastLogin: user.activeSession.lastLogin,
+//       },
+//     });
+//   } catch (err) {
+//     console.error("Login error:", err);
+//     next(err);
+//   }
+// }
+
+
 export async function loginUser(req, res, next) {
   try {
     const { email, password, deviceInfo } = req.body;
@@ -202,7 +332,9 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    if (user.role?.includes("pending")) {
+    const roles = Array.isArray(user.role) ? user.role : [user.role];
+
+    if (roles.includes("pending")) {
       return res.status(403).json({
         success: false,
         status: "PENDING_APPROVAL",
@@ -210,7 +342,7 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    if (user.role?.includes("rejected")) {
+    if (roles.includes("rejected")) {
       return res.status(403).json({
         success: false,
         status: "REJECTED",
@@ -229,22 +361,31 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    /* ================= TRUE ONE-TIME LOGIN ================= */
-    // Once activeSession exists, NO second login allowed from ANY device
-    // Only password reset should clear activeSession
+    /* ================= ROLE POLICY ================= */
+    // Only staff + students = one-time single device
+    // Admin + super_admin = multi-device allowed
 
-    if (user.activeSession?.sessionId) {
+    const isRestrictedSingleDevice =
+      roles.includes("staff") || roles.includes("student");
+
+    /* ================= SINGLE DEVICE ENFORCEMENT ================= */
+
+    if (isRestrictedSingleDevice && user.activeSession?.sessionId) {
       return res.status(403).json({
         success: false,
         status: "ALREADY_LOGGED_IN",
         message:
-          "This account is already logged in on a device.",
+          "This account is already logged in on another device. Reset password if device is lost.",
         activeDevice: user.activeSession.deviceInfo || "unknown-device",
         lastLogin: user.activeSession.lastLogin,
       });
     }
 
-    /* ================= NEW SESSION ================= */
+    /* ================= SESSION CREATION ================= */
+    // Staff/Student:
+    //   blocked if already active
+    // Admin/SuperAdmin:
+    //   session replaced on each login (more flexible)
 
     const sessionId = uuidv4();
 
@@ -260,7 +401,7 @@ export async function loginUser(req, res, next) {
 
     const token = generateToken({
       userId: user._id,
-      sessionId, // MUST be validated in protect middleware
+      sessionId,
       role: user.role,
       institutionId: user.institutionId,
       name: user.name,
@@ -271,8 +412,9 @@ export async function loginUser(req, res, next) {
 
     return res.status(200).json({
       success: true,
-      message:
-        "Login successful. This device is now permanently linked until password reset.",
+      message: isRestrictedSingleDevice
+        ? "Login successful. This device is now locked to your account until password reset."
+        : "Login successful.",
 
       token,
 
@@ -288,6 +430,10 @@ export async function loginUser(req, res, next) {
         sessionId: user.activeSession.sessionId,
         deviceInfo: user.activeSession.deviceInfo,
         lastLogin: user.activeSession.lastLogin,
+      },
+
+      securityPolicy: {
+        singleDeviceRestricted: isRestrictedSingleDevice,
       },
     });
   } catch (err) {
