@@ -509,7 +509,7 @@ export const clockAttendance = async (req, res) => {
 
     /* ================= REMOTE ACCESS CONTROL ================= */
 
-    const isRemoteUser =
+    const isRemoteMode =
       user.clockMode === "remote" ||
       user.clockMode === "hybrid" ||
       user.clockMode === "field";
@@ -517,63 +517,138 @@ export const clockAttendance = async (req, res) => {
     const institutionAllowsRemote = settings.allowRemoteClocking === true;
     const userAllowsRemote = user.remoteAccess?.allowed === true;
 
-    // ONLY true for approved remote users
     const remoteAuthorized =
       mode === "admin_override" ||
-      (institutionAllowsRemote && userAllowsRemote && isRemoteUser);
+      (institutionAllowsRemote && userAllowsRemote && isRemoteMode);
 
     /* ================= GEO CHECK ================= */
 
     let distanceFromOffice = null;
-    let outsideAllowedZone = false;
 
     const locationSource = settings.useBranches
       ? branch?.location
       : settings.officeLocation;
 
-    if (locationSource?.coordinates?.length === 2) {
+    /*
+      IMPORTANT:
+      Coordinates in DB MUST be:
+      [lng, lat]
+    */
+
+    if (
+      locationSource &&
+      Array.isArray(locationSource.coordinates) &&
+      locationSource.coordinates.length === 2
+    ) {
       const [officeLng, officeLat] = locationSource.coordinates;
 
-      const toRad = (v) => (v * Math.PI) / 180;
-      const R = 6378137;
+      /* ================= VALIDATE OFFICE COORDINATES ================= */
 
-      const dLat = toRad(lat - officeLat);
-      const dLng = toRad(lng - officeLng);
+      if (
+        typeof officeLat !== "number" ||
+        typeof officeLng !== "number" ||
+        officeLat < -90 ||
+        officeLat > 90 ||
+        officeLng < -180 ||
+        officeLng > 180
+      ) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Invalid office/branch coordinates configuration. Expected [lng, lat].",
+        });
+      }
 
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(officeLat)) *
-          Math.cos(toRad(lat)) *
-          Math.sin(dLng / 2) ** 2;
+      /* ================= VALIDATE USER GPS ================= */
 
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      if (
+        typeof lat !== "number" ||
+        typeof lng !== "number" ||
+        lat < -90 ||
+        lat > 90 ||
+        lng < -180 ||
+        lng > 180
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid user GPS coordinates",
+        });
+      }
 
-      distanceFromOffice = R * c;
+      console.log("========= GEO DEBUG =========");
+      console.log("User GPS:", { lat, lng });
+      console.log("Office GPS:", { officeLat, officeLng });
+      console.log("Use Branches:", settings.useBranches);
+
+      /* ================= SAME LOCATION TOLERANCE ================= */
+      const sameLat = Math.abs(lat - officeLat) < 0.00001;
+      const sameLng = Math.abs(lng - officeLng) < 0.00001;
+
+      if (sameLat && sameLng) {
+        distanceFromOffice = 0;
+      } else {
+        /* ================= HAVERSINE ================= */
+
+        const toRad = (value) => (value * Math.PI) / 180;
+
+        const R = 6371000; // meters
+
+        const dLat = toRad(lat - officeLat);
+        const dLng = toRad(lng - officeLng);
+
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(toRad(officeLat)) *
+            Math.cos(toRad(lat)) *
+            Math.sin(dLng / 2) *
+            Math.sin(dLng / 2);
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        distanceFromOffice = R * c;
+      }
 
       const allowedRadius = settings.useBranches
-        ? branch.radiusMeters
-        : settings.gpsRadiusMeters;
+        ? branch?.radiusMeters || 100
+        : settings.gpsRadiusMeters || 100;
 
-      outsideAllowedZone = distanceFromOffice > allowedRadius;
+      console.log(
+        "Distance From Office:",
+        Math.round(distanceFromOffice),
+        "meters"
+      );
 
-      /**
-       * FIX:
-       * - Onsite users INSIDE zone => allowed
-       * - Onsite users OUTSIDE zone => blocked
-       * - Remote approved users OUTSIDE zone => allowed
-       */
+      console.log("Allowed Radius:", allowedRadius, "meters");
+
+      const outsideAllowedZone = distanceFromOffice > allowedRadius;
 
       if (
         settings.enforceGeofence &&
         mode !== "admin_override" &&
-        outsideAllowedZone &&
-        !remoteAuthorized
+        outsideAllowedZone
       ) {
-        return res.status(403).json({
-          success: false,
-          message: "Outside allowed location",
-        });
+        if (!remoteAuthorized) {
+          return res.status(403).json({
+            success: false,
+            message: `Outside allowed location. You are ${Math.round(
+              distanceFromOffice
+            )}m away. Allowed radius is ${allowedRadius}m.`,
+            meta: {
+              distanceFromOffice: Math.round(distanceFromOffice),
+              allowedRadius,
+              remoteAllowed: false,
+            },
+          });
+        }
+
+        console.log("Remote clocking allowed for this user.");
       }
+
+      console.log("========= GEO PASS =========");
+    } else {
+      console.log(
+        "No office/branch coordinates configured. Skipping geofence validation."
+      );
     }
 
     /* ================= QR VALIDATION ================= */
@@ -631,7 +706,6 @@ export const clockAttendance = async (req, res) => {
           hour: startHour,
           minute: startMin,
           second: 0,
-          millisecond: 0,
         });
 
       const diffMinutes = now.diff(expectedStart, "minutes");
@@ -654,6 +728,7 @@ export const clockAttendance = async (req, res) => {
         userId,
         institutionId: user.institutionId,
         branchId: settings.useBranches ? branch?._id : null,
+        shiftId: null,
         actionType,
         mode,
         gps: {
@@ -670,9 +745,10 @@ export const clockAttendance = async (req, res) => {
             ? Math.round(distanceFromOffice)
             : null,
         validationResult:
-          outsideAllowedZone && remoteAuthorized
-            ? "accepted"
-            : outsideAllowedZone
+          distanceFromOffice !== null &&
+          settings.enforceGeofence &&
+          distanceFromOffice > settings.gpsRadiusMeters &&
+          !remoteAuthorized
             ? "out_of_zone"
             : "accepted",
       });
@@ -685,7 +761,10 @@ export const clockAttendance = async (req, res) => {
         meta: {
           clockInStatus,
           remote: remoteAuthorized,
-          outsideAllowedZone,
+          distanceFromOffice:
+            distanceFromOffice !== null
+              ? Math.round(distanceFromOffice)
+              : null,
         },
         data: attendance,
       });
@@ -737,8 +816,6 @@ export const clockAttendance = async (req, res) => {
           .set({
             hour: h,
             minute: m,
-            second: 0,
-            millisecond: 0,
           });
 
         if (now.isBefore(expectedEnd)) {
@@ -752,6 +829,7 @@ export const clockAttendance = async (req, res) => {
         userId,
         institutionId: user.institutionId,
         branchId: settings.useBranches ? branch?._id : null,
+        shiftId: null,
         actionType,
         mode,
         gps: {
@@ -767,9 +845,10 @@ export const clockAttendance = async (req, res) => {
             ? Math.round(distanceFromOffice)
             : null,
         validationResult:
-          outsideAllowedZone && remoteAuthorized
-            ? "accepted"
-            : outsideAllowedZone
+          distanceFromOffice !== null &&
+          settings.enforceGeofence &&
+          distanceFromOffice > settings.gpsRadiusMeters &&
+          !remoteAuthorized
             ? "out_of_zone"
             : "accepted",
       });
@@ -783,7 +862,10 @@ export const clockAttendance = async (req, res) => {
           workDurationMinutes,
           clockOutStatus,
           remote: remoteAuthorized,
-          outsideAllowedZone,
+          distanceFromOffice:
+            distanceFromOffice !== null
+              ? Math.round(distanceFromOffice)
+              : null,
         },
         data: attendance,
       });
