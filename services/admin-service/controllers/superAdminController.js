@@ -367,29 +367,51 @@ export const getAllInstitutions = async (req, res) => {
 
         let ownerData = null;
 
-        // SAFELY handle owner even if corrupted
+        /* ================= SAFE OWNER CHECK ================= */
+
+        // 🔥 CRITICAL FIX:
+        // Never query User unless owner is a VALID ObjectId string
         if (
           institution.owner &&
-          typeof institution.owner === "object"
+          typeof institution.owner === "string"
         ) {
-          const owner = await User.findOne({ _id: institution.owner })
-            .select("name email")
-            .lean();
+          const trimmedOwner = institution.owner.trim();
 
-          if (owner) {
+          // If corrupted legacy string like "jackie", skip DB lookup
+          if (/^[a-fA-F0-9]{24}$/.test(trimmedOwner)) {
+            const owner = await User.findOne({ _id: trimmedOwner })
+              .select("name email")
+              .lean();
+
+            if (owner) {
+              ownerData = {
+                id: owner._id,
+                name: owner.name,
+                email: owner.email,
+              };
+            }
+          } else {
+            // fallback for bad legacy data
             ownerData = {
-              id: owner._id,
-              name: owner.name,
-              email: owner.email,
+              id: null,
+              name: trimmedOwner,
+              email: null,
             };
           }
-        } else if (institution.owner) {
+
+        } else if (
+          institution.owner &&
+          institution.owner._id
+        ) {
+          // Handles already populated object
           ownerData = {
-            id: null,
-            name: String(institution.owner).trim(),
-            email: null,
+            id: institution.owner._id,
+            name: institution.owner.name || null,
+            email: institution.owner.email || null,
           };
         }
+
+        /* ================= USER COUNTS ================= */
 
         const adminCount = await User.countDocuments({
           institutionId,
@@ -409,7 +431,9 @@ export const getAllInstitutions = async (req, res) => {
           type: institution.type,
           isActive: institution.isActive,
           createdAt: institution.createdAt,
+
           owner: ownerData,
+
           stats: {
             admins: adminCount,
             staff: staffCount,
