@@ -356,7 +356,7 @@ import mongoose from "mongoose";
 
 export const getAllInstitutions = async (req, res) => {
   try {
-    const institutions = await Institution.find()
+    const institutions = await Institution.find({})
       .select("name type isActive createdAt owner")
       .sort({ createdAt: -1 })
       .lean();
@@ -365,17 +365,14 @@ export const getAllInstitutions = async (req, res) => {
       institutions.map(async (institution) => {
         const institutionId = institution._id;
 
-        /* ================= OWNER SAFE CHECK ================= */
-
         let ownerData = null;
 
+        // SAFELY handle owner even if corrupted
         if (
           institution.owner &&
-          mongoose.Types.ObjectId.isValid(String(institution.owner).trim())
+          typeof institution.owner === "object"
         ) {
-          const owner = await User.findById(
-            String(institution.owner).trim()
-          )
+          const owner = await User.findOne({ _id: institution.owner })
             .select("name email")
             .lean();
 
@@ -386,18 +383,13 @@ export const getAllInstitutions = async (req, res) => {
               email: owner.email,
             };
           }
-        } else {
-          // fallback if owner stored as plain text
-          ownerData = institution.owner
-            ? {
-                id: null,
-                name: String(institution.owner).trim(),
-                email: null,
-              }
-            : null;
+        } else if (institution.owner) {
+          ownerData = {
+            id: null,
+            name: String(institution.owner).trim(),
+            email: null,
+          };
         }
-
-        /* ================= COUNTS ================= */
 
         const adminCount = await User.countDocuments({
           institutionId,
@@ -417,9 +409,7 @@ export const getAllInstitutions = async (req, res) => {
           type: institution.type,
           isActive: institution.isActive,
           createdAt: institution.createdAt,
-
           owner: ownerData,
-
           stats: {
             admins: adminCount,
             staff: staffCount,
