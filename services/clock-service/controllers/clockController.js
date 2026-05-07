@@ -509,7 +509,7 @@ export const clockAttendance = async (req, res) => {
 
     /* ================= REMOTE ACCESS CONTROL ================= */
 
-    const isRemoteMode =
+    const isRemoteUser =
       user.clockMode === "remote" ||
       user.clockMode === "hybrid" ||
       user.clockMode === "field";
@@ -517,13 +517,15 @@ export const clockAttendance = async (req, res) => {
     const institutionAllowsRemote = settings.allowRemoteClocking === true;
     const userAllowsRemote = user.remoteAccess?.allowed === true;
 
+    // ONLY true for approved remote users
     const remoteAuthorized =
       mode === "admin_override" ||
-      (institutionAllowsRemote && userAllowsRemote && isRemoteMode);
+      (institutionAllowsRemote && userAllowsRemote && isRemoteUser);
 
     /* ================= GEO CHECK ================= */
 
     let distanceFromOffice = null;
+    let outsideAllowedZone = false;
 
     const locationSource = settings.useBranches
       ? branch?.location
@@ -552,22 +554,25 @@ export const clockAttendance = async (req, res) => {
         ? branch.radiusMeters
         : settings.gpsRadiusMeters;
 
-      const outsideAllowedZone = distanceFromOffice > allowedRadius;
+      outsideAllowedZone = distanceFromOffice > allowedRadius;
 
-      /* ===== If geofence ON + outside zone ===== */
+      /**
+       * FIX:
+       * - Onsite users INSIDE zone => allowed
+       * - Onsite users OUTSIDE zone => blocked
+       * - Remote approved users OUTSIDE zone => allowed
+       */
+
       if (
         settings.enforceGeofence &&
         mode !== "admin_override" &&
-        outsideAllowedZone
+        outsideAllowedZone &&
+        !remoteAuthorized
       ) {
-        /* ===== Remote institution + remote user + proper mode ===== */
-        if (!remoteAuthorized) {
-          return res.status(403).json({
-            success: false,
-            message:
-              "Remote clocking not allowed. Institution approval + user approval required.",
-          });
-        }
+        return res.status(403).json({
+          success: false,
+          message: "Outside allowed location",
+        });
       }
     }
 
@@ -626,6 +631,7 @@ export const clockAttendance = async (req, res) => {
           hour: startHour,
           minute: startMin,
           second: 0,
+          millisecond: 0,
         });
 
       const diffMinutes = now.diff(expectedStart, "minutes");
@@ -659,13 +665,14 @@ export const clockAttendance = async (req, res) => {
         status: "present",
         clockInStatus,
         minutesLate: diffMinutes > 0 ? diffMinutes : 0,
-        distanceFromOffice: distanceFromOffice
-          ? Math.round(distanceFromOffice)
-          : null,
+        distanceFromOffice:
+          distanceFromOffice !== null
+            ? Math.round(distanceFromOffice)
+            : null,
         validationResult:
-          distanceFromOffice &&
-          settings.enforceGeofence &&
-          !remoteAuthorized
+          outsideAllowedZone && remoteAuthorized
+            ? "accepted"
+            : outsideAllowedZone
             ? "out_of_zone"
             : "accepted",
       });
@@ -678,6 +685,7 @@ export const clockAttendance = async (req, res) => {
         meta: {
           clockInStatus,
           remote: remoteAuthorized,
+          outsideAllowedZone,
         },
         data: attendance,
       });
@@ -729,6 +737,8 @@ export const clockAttendance = async (req, res) => {
           .set({
             hour: h,
             minute: m,
+            second: 0,
+            millisecond: 0,
           });
 
         if (now.isBefore(expectedEnd)) {
@@ -752,13 +762,14 @@ export const clockAttendance = async (req, res) => {
         date,
         clockOutStatus,
         workDurationMinutes,
-        distanceFromOffice: distanceFromOffice
-          ? Math.round(distanceFromOffice)
-          : null,
+        distanceFromOffice:
+          distanceFromOffice !== null
+            ? Math.round(distanceFromOffice)
+            : null,
         validationResult:
-          distanceFromOffice &&
-          settings.enforceGeofence &&
-          !remoteAuthorized
+          outsideAllowedZone && remoteAuthorized
+            ? "accepted"
+            : outsideAllowedZone
             ? "out_of_zone"
             : "accepted",
       });
@@ -772,6 +783,7 @@ export const clockAttendance = async (req, res) => {
           workDurationMinutes,
           clockOutStatus,
           remote: remoteAuthorized,
+          outsideAllowedZone,
         },
         data: attendance,
       });
