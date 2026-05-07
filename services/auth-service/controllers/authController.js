@@ -238,7 +238,7 @@ export async function loginUser(req, res, next) {
         success: false,
         status: "ALREADY_LOGGED_IN",
         message:
-          "This account is already logged in on a device. To access again, reset your password.",
+          "This account is already logged in on a device.",
         activeDevice: user.activeSession.deviceInfo || "unknown-device",
         lastLogin: user.activeSession.lastLogin,
       });
