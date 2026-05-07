@@ -95,9 +95,83 @@ export async function registerUser(req, res, next) {
 
 
 
+// export async function loginUser(req, res, next) {
+//   try {
+//     const { email, password, deviceInfo } = req.body; 
+
+//     if (!email || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email and password are required",
+//       });
+//     }
+
+//     const user = await User.findOne({ email });
+//     if (!user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+
+//     // ⚠️ FIX: role is an array in your schema
+//     if (user.role?.includes("pending")) {
+//       return res.status(403).json({
+//         success: false,
+//         status: "PENDING_APPROVAL",
+//         message: "Account awaiting approval by admin",
+//       });
+//     }
+
+//     const isMatch = await verifyPassword(password, user.passwordHash);
+//     if (!isMatch) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+
+//     // ================= NEW: SESSION =================
+//     const sessionId = uuidv4();
+
+//     user.activeSession = {
+//       sessionId,
+//       deviceInfo: deviceInfo || "unknown device",
+//       lastLogin: new Date(),
+//     };
+
+//     await user.save();
+
+//     // ================= TOKEN =================
+//     const token = generateToken({
+//       userId: user._id,
+//       sessionId, // 🔥 VERY IMPORTANT
+//     });
+
+//     res.json({
+//       success: true,
+//       message: "Login successful",
+//       token,
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         role: user.role,
+//         institutionId: user.institutionId,
+//       },
+//       session: user.activeSession,
+//     });
+
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+
 export async function loginUser(req, res, next) {
   try {
-    const { email, password, deviceInfo } = req.body; 
+    const { email, password, deviceInfo } = req.body;
+
+    /* ================= BASIC VALIDATION ================= */
 
     if (!email || !password) {
       return res.status(400).json({
@@ -106,7 +180,12 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    const user = await User.findOne({ email });
+    /* ================= FETCH USER ================= */
+
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+    });
+
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -114,7 +193,15 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    // ⚠️ FIX: role is an array in your schema
+    /* ================= ACCOUNT STATUS ================= */
+
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Account is deactivated",
+      });
+    }
+
     if (user.role?.includes("pending")) {
       return res.status(403).json({
         success: false,
@@ -123,7 +210,18 @@ export async function loginUser(req, res, next) {
       });
     }
 
+    if (user.role?.includes("rejected")) {
+      return res.status(403).json({
+        success: false,
+        status: "REJECTED",
+        message: "Account access denied",
+      });
+    }
+
+    /* ================= PASSWORD CHECK ================= */
+
     const isMatch = await verifyPassword(password, user.passwordHash);
+
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -131,27 +229,53 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    // ================= NEW: SESSION =================
+    /* ================= TRUE ONE-TIME LOGIN ================= */
+    // Once activeSession exists, NO second login allowed from ANY device
+    // Only password reset should clear activeSession
+
+    if (user.activeSession?.sessionId) {
+      return res.status(403).json({
+        success: false,
+        status: "ALREADY_LOGGED_IN",
+        message:
+          "This account is already logged in on a device. To access again, reset your password.",
+        activeDevice: user.activeSession.deviceInfo || "unknown-device",
+        lastLogin: user.activeSession.lastLogin,
+      });
+    }
+
+    /* ================= NEW SESSION ================= */
+
     const sessionId = uuidv4();
 
     user.activeSession = {
       sessionId,
-      deviceInfo: deviceInfo || "unknown device",
+      deviceInfo: deviceInfo?.trim() || "unknown-device",
       lastLogin: new Date(),
     };
 
     await user.save();
 
-    // ================= TOKEN =================
+    /* ================= TOKEN ================= */
+
     const token = generateToken({
       userId: user._id,
-      sessionId, // 🔥 VERY IMPORTANT
+      sessionId, // MUST be validated in protect middleware
+      role: user.role,
+      institutionId: user.institutionId,
+      name: user.name,
+      email: user.email,
     });
 
-    res.json({
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
       success: true,
-      message: "Login successful",
+      message:
+        "Login successful. This device is now permanently linked until password reset.",
+
       token,
+
       user: {
         id: user._id,
         name: user.name,
@@ -159,13 +283,19 @@ export async function loginUser(req, res, next) {
         role: user.role,
         institutionId: user.institutionId,
       },
-      session: user.activeSession,
-    });
 
+      session: {
+        sessionId: user.activeSession.sessionId,
+        deviceInfo: user.activeSession.deviceInfo,
+        lastLogin: user.activeSession.lastLogin,
+      },
+    });
   } catch (err) {
+    console.error("Login error:", err);
     next(err);
   }
 }
+
 
 export const logoutUser = async (req, res) => {
   try {
