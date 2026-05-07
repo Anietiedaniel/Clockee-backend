@@ -336,19 +336,89 @@ export const superCreateAdmin = async (req, res) => {
 };
 
 // only super admin can do this
+// export const getAllInstitutions = async (req, res) => {
+//   try {
+//     const institutions = await Institution.find()
+//       .select("name type isActive createdAt")
+//       .sort({ createdAt: -1 });
+
+//     res.status(200).json({
+//       total: institutions.length,
+//       institutions,
+//     });
+//   } catch (err) {
+//     console.error("Get institutions error:", err);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
+
 export const getAllInstitutions = async (req, res) => {
   try {
-    const institutions = await Institution.find()
-      .select("name type isActive createdAt")
-      .sort({ createdAt: -1 });
+    /* ================= FETCH INSTITUTIONS ================= */
 
-    res.status(200).json({
-      total: institutions.length,
-      institutions,
+    const institutions = await Institution.find()
+      .select("name type isActive createdAt owner")
+      .populate("owner", "name email")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    /* ================= ENRICH WITH USER COUNTS ================= */
+
+    const enrichedInstitutions = await Promise.all(
+      institutions.map(async (institution) => {
+        const institutionId = institution._id;
+
+        // Count admins (admin only, excluding super_admin unless also admin)
+        const adminCount = await User.countDocuments({
+          institutionId,
+          role: "admin",
+          isActive: true,
+        });
+
+        // Count staff
+        const staffCount = await User.countDocuments({
+          institutionId,
+          role: "staff",
+          isActive: true,
+        });
+
+        return {
+          _id: institution._id,
+          name: institution.name,
+          type: institution.type,
+          isActive: institution.isActive,
+          createdAt: institution.createdAt,
+
+          owner: institution.owner
+            ? {
+                id: institution.owner._id,
+                name: institution.owner.name,
+                email: institution.owner.email,
+              }
+            : null,
+
+          stats: {
+            admins: adminCount,
+            staff: staffCount,
+          },
+        };
+      })
+    );
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+      total: enrichedInstitutions.length,
+      institutions: enrichedInstitutions,
     });
   } catch (err) {
     console.error("Get institutions error:", err);
-    res.status(500).json({ message: "Server error" });
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
@@ -492,8 +562,6 @@ export const adminOnboardStatus = (req, res) => {
     message: "Admin is onboard",
   });
 };
-
-
 
 export const getAllInstitutionOwners = async (req, res) => {
   try {
