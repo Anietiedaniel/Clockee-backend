@@ -352,14 +352,34 @@ export const superCreateAdmin = async (req, res) => {
 //   }
 // };
 
-import mongoose from "mongoose";
+
+
+
 
 export const getAllInstitutions = async (req, res) => {
   try {
-    const institutions = await Institution.find({})
-      .select("name type isActive createdAt owner")
+    /* ================= FETCH INSTITUTIONS RAW ================= */
+
+    // 🔥 KEY FIX:
+    // Use native collection query to bypass Mongoose casting issues
+    // caused by corrupted legacy owner values like " jackie"
+    const institutions = await Institution.collection
+      .find(
+        {},
+        {
+          projection: {
+            name: 1,
+            type: 1,
+            isActive: 1,
+            createdAt: 1,
+            owner: 1,
+          },
+        }
+      )
       .sort({ createdAt: -1 })
-      .lean();
+      .toArray();
+
+    /* ================= ENRICH ================= */
 
     const enrichedInstitutions = await Promise.all(
       institutions.map(async (institution) => {
@@ -367,19 +387,14 @@ export const getAllInstitutions = async (req, res) => {
 
         let ownerData = null;
 
-        /* ================= SAFE OWNER CHECK ================= */
+        /* ================= SAFE OWNER ================= */
 
-        // 🔥 CRITICAL FIX:
-        // Never query User unless owner is a VALID ObjectId string
-        if (
-          institution.owner &&
-          typeof institution.owner === "string"
-        ) {
-          const trimmedOwner = institution.owner.trim();
+        if (institution.owner) {
+          const ownerValue = String(institution.owner).trim();
 
-          // If corrupted legacy string like "jackie", skip DB lookup
-          if (/^[a-fA-F0-9]{24}$/.test(trimmedOwner)) {
-            const owner = await User.findOne({ _id: trimmedOwner })
+          // Only lookup if valid ObjectId
+          if (mongoose.Types.ObjectId.isValid(ownerValue)) {
+            const owner = await User.findById(ownerValue)
               .select("name email")
               .lean();
 
@@ -391,27 +406,16 @@ export const getAllInstitutions = async (req, res) => {
               };
             }
           } else {
-            // fallback for bad legacy data
+            // Legacy bad data fallback
             ownerData = {
               id: null,
-              name: trimmedOwner,
+              name: ownerValue,
               email: null,
             };
           }
-
-        } else if (
-          institution.owner &&
-          institution.owner._id
-        ) {
-          // Handles already populated object
-          ownerData = {
-            id: institution.owner._id,
-            name: institution.owner.name || null,
-            email: institution.owner.email || null,
-          };
         }
 
-        /* ================= USER COUNTS ================= */
+        /* ================= COUNTS ================= */
 
         const adminCount = await User.countDocuments({
           institutionId,
@@ -441,6 +445,8 @@ export const getAllInstitutions = async (req, res) => {
         };
       })
     );
+
+    /* ================= RESPONSE ================= */
 
     return res.status(200).json({
       success: true,
