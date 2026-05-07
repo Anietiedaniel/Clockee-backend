@@ -384,7 +384,7 @@ export async function loginUser(req, res, next) {
         success: false,
         status: "ALREADY_LOGGED_IN",
         message:
-          "This account is already logged in on another device. Reset password if device is lost.",
+          "This account is already logged in on another device.",
         activeDevice: user.activeSession.deviceInfo || "unknown-device",
         lastLogin: user.activeSession.lastLogin,
       });
@@ -423,7 +423,7 @@ export async function loginUser(req, res, next) {
     return res.status(200).json({
       success: true,
       message: isRestrictedSingleDevice
-        ? "Login successful. This device is now linked to your account until password reset."
+        ? "Login successful. This device is now linked to your account ."
         : "Login successful.",
 
       token,
