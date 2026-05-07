@@ -388,7 +388,11 @@ export const clockAttendance = async (req, res) => {
       });
     }
 
-    if (!gps || typeof gps.lat !== "number" || typeof gps.lng !== "number") {
+    if (
+      !gps ||
+      typeof gps.lat !== "number" ||
+      typeof gps.lng !== "number"
+    ) {
       return res.status(400).json({
         success: false,
         message: "Valid GPS required",
@@ -525,24 +529,48 @@ export const clockAttendance = async (req, res) => {
 
     let distanceFromOffice = null;
 
-    const locationSource = settings.useBranches
-      ? branch?.location
-      : settings.officeLocation;
-
     /*
-      IMPORTANT:
-      Coordinates in DB MUST be:
-      [lng, lat]
+      PRIORITY:
+      Branch location first if useBranches = true
+      Otherwise institution office
     */
+    const locationSource =
+      settings.useBranches && branch?.location?.coordinates?.length === 2
+        ? branch.location
+        : settings.officeLocation;
 
     if (
-      locationSource &&
-      Array.isArray(locationSource.coordinates) &&
-      locationSource.coordinates.length === 2
+      !locationSource ||
+      !Array.isArray(locationSource.coordinates) ||
+      locationSource.coordinates.length !== 2
     ) {
+      console.log(
+        settings.useBranches
+          ? "Branch coordinates missing. Skipping geofence."
+          : "Institution office coordinates missing. Skipping geofence."
+      );
+    } else {
+      /*
+        GeoJSON format:
+        [lng, lat]
+      */
       const [officeLng, officeLat] = locationSource.coordinates;
 
-      /* ================= VALIDATE OFFICE COORDINATES ================= */
+      console.log("========= GEO DEBUG =========");
+      console.log("User GPS:", { lat, lng });
+
+      console.log(
+        settings.useBranches ? "Branch GPS:" : "Office GPS:",
+        {
+          officeLat,
+          officeLng,
+        }
+      );
+
+      console.log("Use Branches:", settings.useBranches);
+      console.log("Branch ID:", branch?._id || null);
+
+      /* ================= VALIDATE ================= */
 
       if (
         typeof officeLat !== "number" ||
@@ -554,12 +582,11 @@ export const clockAttendance = async (req, res) => {
       ) {
         return res.status(500).json({
           success: false,
-          message:
-            "Invalid office/branch coordinates configuration. Expected [lng, lat].",
+          message: settings.useBranches
+            ? "Invalid branch coordinates configuration. Expected [lng, lat]."
+            : "Invalid office coordinates configuration. Expected [lng, lat].",
         });
       }
-
-      /* ================= VALIDATE USER GPS ================= */
 
       if (
         typeof lat !== "number" ||
@@ -575,14 +602,11 @@ export const clockAttendance = async (req, res) => {
         });
       }
 
-      console.log("========= GEO DEBUG =========");
-      console.log("User GPS:", { lat, lng });
-      console.log("Office GPS:", { officeLat, officeLng });
-      console.log("Use Branches:", settings.useBranches);
-
-      /* ================= SAME LOCATION TOLERANCE ================= */
-      const sameLat = Math.abs(lat - officeLat) < 0.00001;
-      const sameLng = Math.abs(lng - officeLng) < 0.00001;
+      /* ================= SAME LOCATION TOLERANCE =================
+         Handles mobile GPS fluctuations
+      */
+      const sameLat = Math.abs(lat - officeLat) < 0.0001;
+      const sameLng = Math.abs(lng - officeLng) < 0.0001;
 
       if (sameLat && sameLng) {
         distanceFromOffice = 0;
@@ -597,30 +621,33 @@ export const clockAttendance = async (req, res) => {
         const dLng = toRad(lng - officeLng);
 
         const a =
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.sin(dLat / 2) ** 2 +
           Math.cos(toRad(officeLat)) *
             Math.cos(toRad(lat)) *
-            Math.sin(dLng / 2) *
-            Math.sin(dLng / 2);
+            Math.sin(dLng / 2) ** 2;
 
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
         distanceFromOffice = R * c;
       }
 
+      /* ================= RADIUS ================= */
+
       const allowedRadius = settings.useBranches
-        ? branch?.radiusMeters || 100
+        ? branch?.radiusMeters || settings.gpsRadiusMeters || 100
         : settings.gpsRadiusMeters || 100;
 
       console.log(
-        "Distance From Office:",
+        "Distance From Location:",
         Math.round(distanceFromOffice),
         "meters"
       );
 
-      console.log("Allowed Radius:", allowedRadius, "meters");
+      console.log("Allowed Radius:", allowedRadius);
 
       const outsideAllowedZone = distanceFromOffice > allowedRadius;
+
+      /* ================= ENFORCE ================= */
 
       if (
         settings.enforceGeofence &&
@@ -630,10 +657,16 @@ export const clockAttendance = async (req, res) => {
         if (!remoteAuthorized) {
           return res.status(403).json({
             success: false,
-            message: `Outside allowed location. You are ${Math.round(
-              distanceFromOffice
-            )}m away. Allowed radius is ${allowedRadius}m.`,
+            message: settings.useBranches
+              ? `Outside assigned branch location. You are ${Math.round(
+                  distanceFromOffice
+                )}m away from your branch. Allowed radius is ${allowedRadius}m.`
+              : `Outside institution location. You are ${Math.round(
+                  distanceFromOffice
+                )}m away. Allowed radius is ${allowedRadius}m.`,
             meta: {
+              branchId: branch?._id || null,
+              useBranches: settings.useBranches,
               distanceFromOffice: Math.round(distanceFromOffice),
               allowedRadius,
               remoteAllowed: false,
@@ -641,14 +674,10 @@ export const clockAttendance = async (req, res) => {
           });
         }
 
-        console.log("Remote clocking allowed for this user.");
+        console.log("Remote bypass granted.");
       }
 
       console.log("========= GEO PASS =========");
-    } else {
-      console.log(
-        "No office/branch coordinates configured. Skipping geofence validation."
-      );
     }
 
     /* ================= QR VALIDATION ================= */
@@ -747,8 +776,11 @@ export const clockAttendance = async (req, res) => {
         validationResult:
           distanceFromOffice !== null &&
           settings.enforceGeofence &&
-          distanceFromOffice > settings.gpsRadiusMeters &&
-          !remoteAuthorized
+          !remoteAuthorized &&
+          distanceFromOffice >
+            (settings.useBranches
+              ? branch?.radiusMeters || settings.gpsRadiusMeters
+              : settings.gpsRadiusMeters)
             ? "out_of_zone"
             : "accepted",
       });
@@ -816,6 +848,7 @@ export const clockAttendance = async (req, res) => {
           .set({
             hour: h,
             minute: m,
+            second: 0,
           });
 
         if (now.isBefore(expectedEnd)) {
@@ -847,8 +880,11 @@ export const clockAttendance = async (req, res) => {
         validationResult:
           distanceFromOffice !== null &&
           settings.enforceGeofence &&
-          distanceFromOffice > settings.gpsRadiusMeters &&
-          !remoteAuthorized
+          !remoteAuthorized &&
+          distanceFromOffice >
+            (settings.useBranches
+              ? branch?.radiusMeters || settings.gpsRadiusMeters
+              : settings.gpsRadiusMeters)
             ? "out_of_zone"
             : "accepted",
       });
@@ -879,7 +915,6 @@ export const clockAttendance = async (req, res) => {
     });
   }
 };
-
 
 
 export const adminOverrideClock = async (req, res) => {
