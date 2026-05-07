@@ -362,11 +362,20 @@ export async function loginUser(req, res, next) {
     }
 
     /* ================= ROLE POLICY ================= */
-    // Only staff + students = one-time single device
-    // Admin + super_admin = multi-device allowed
+    // Admin + Super Admin => unrestricted login
+    // Staff + Student => one active device only
+
+    const isAdmin =
+      roles.includes("admin") || roles.includes("super_admin");
 
     const isRestrictedSingleDevice =
-      roles.includes("staff") || roles.includes("student");
+      !isAdmin &&
+      (roles.includes("staff") || roles.includes("student"));
+
+    /* ================= DEVICE INFO ================= */
+
+    const normalizedDevice =
+      deviceInfo?.trim() || "unknown-device";
 
     /* ================= SINGLE DEVICE ENFORCEMENT ================= */
 
@@ -383,15 +392,16 @@ export async function loginUser(req, res, next) {
 
     /* ================= SESSION CREATION ================= */
     // Staff/Student:
-    //   blocked if already active
+    //    first login only until password reset
+    //
     // Admin/SuperAdmin:
-    //   session replaced on each login (more flexible)
+    //    always allowed, latest login replaces previous session
 
     const sessionId = uuidv4();
 
     user.activeSession = {
       sessionId,
-      deviceInfo: deviceInfo?.trim() || "unknown-device",
+      deviceInfo: normalizedDevice,
       lastLogin: new Date(),
     };
 
@@ -413,7 +423,7 @@ export async function loginUser(req, res, next) {
     return res.status(200).json({
       success: true,
       message: isRestrictedSingleDevice
-        ? "Login successful. This device is now locked to your account until password reset."
+        ? "Login successful. This device is now linked to your account until password reset."
         : "Login successful.",
 
       token,
@@ -434,6 +444,7 @@ export async function loginUser(req, res, next) {
 
       securityPolicy: {
         singleDeviceRestricted: isRestrictedSingleDevice,
+        adminBypass: isAdmin,
       },
     });
   } catch (err) {
