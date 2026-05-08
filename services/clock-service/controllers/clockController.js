@@ -1598,203 +1598,203 @@ export const getAttendanceHistory = async (req, res) => {
   }
 };
 
-export const syncOfflineLogs = async (req, res) => {
-  try {
-    const { offlineLogs } = req.body;
-    const { _id: userId, institutionId, sessionId } = req.user;
+// export const syncOfflineLogs = async (req, res) => {
+//   try {
+//     const { offlineLogs } = req.body;
+//     const { _id: userId, institutionId, sessionId } = req.user;
 
-    if (!offlineLogs || !Array.isArray(offlineLogs) || offlineLogs.length === 0) {
-      return res.status(400).json({ message: "No offline logs provided." });
-    }
+//     if (!offlineLogs || !Array.isArray(offlineLogs) || offlineLogs.length === 0) {
+//       return res.status(400).json({ message: "No offline logs provided." });
+//     }
 
-    // ===============================
-    // 🔐 SESSION VALIDATION (IMPORTANT)
-    // ===============================
-    const user = await User.findById(userId);
+//     // ===============================
+//     // 🔐 SESSION VALIDATION (IMPORTANT)
+//     // ===============================
+//     const user = await User.findById(userId);
 
-    if (!user || user.activeSession?.sessionId !== sessionId) {
-      return res.status(401).json({
-        success: false,
-        message: "Session expired or logged in on another device",
-      });
-    }
+//     if (!user || user.activeSession?.sessionId !== sessionId) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Session expired or logged in on another device",
+//       });
+//     }
 
-    const results = [];
+//     const results = [];
 
-    for (const log of offlineLogs) {
-      const { branchId, gps, actionType, mode, timestamp, qrCode } = log;
+//     for (const log of offlineLogs) {
+//       const { branchId, gps, actionType, mode, timestamp, qrCode } = log;
 
-      try {
-        const now = moment(timestamp);
-        const date = now.clone().startOf("day").toDate();
+//       try {
+//         const now = moment(timestamp);
+//         const date = now.clone().startOf("day").toDate();
 
-        /* ===============================
-           SETTINGS
-        =============================== */
-        const settingsDoc = await InstitutionSetting.findOne({
-          institutionId,
-          isActive: true,
-        });
+//         /* ===============================
+//            SETTINGS
+//         =============================== */
+//         const settingsDoc = await InstitutionSetting.findOne({
+//           institutionId,
+//           isActive: true,
+//         });
 
-        const settings = {
-          timezone: "Africa/Lagos",
-          workStartTime: "08:00",
-          workEndTime: "17:00",
-          expectedWorkHours: 8,
-          ...(settingsDoc ? settingsDoc.toObject() : {}),
-        };
+//         const settings = {
+//           timezone: "Africa/Lagos",
+//           workStartTime: "08:00",
+//           workEndTime: "17:00",
+//           expectedWorkHours: 8,
+//           ...(settingsDoc ? settingsDoc.toObject() : {}),
+//         };
 
-        /* ===============================
-           DUPLICATE CHECK
-        =============================== */
-        const existing = await AttendanceLog.findOne({
-          userId,
-          actionType,
-          date,
-        });
+//         /* ===============================
+//            DUPLICATE CHECK
+//         =============================== */
+//         const existing = await AttendanceLog.findOne({
+//           userId,
+//           actionType,
+//           date,
+//         });
 
-        if (existing) {
-          results.push({
-            ...log,
-            syncStatus: "rejected_on_sync",
-            reason: "Already exists for this day",
-          });
-          continue;
-        }
+//         if (existing) {
+//           results.push({
+//             ...log,
+//             syncStatus: "rejected_on_sync",
+//             reason: "Already exists for this day",
+//           });
+//           continue;
+//         }
 
-        /* ===============================
-           CLOCK-IN
-        =============================== */
-        if (actionType === "clock-in") {
-          const [h, m] = settings.workStartTime.split(":").map(Number);
+//         /* ===============================
+//            CLOCK-IN
+//         =============================== */
+//         if (actionType === "clock-in") {
+//           const [h, m] = settings.workStartTime.split(":").map(Number);
 
-          const expectedStart = moment(timestamp).set({
-            hour: h,
-            minute: m,
-            second: 0,
-          });
+//           const expectedStart = moment(timestamp).set({
+//             hour: h,
+//             minute: m,
+//             second: 0,
+//           });
 
-          const diffMinutes = now.diff(expectedStart, "minutes");
+//           const diffMinutes = now.diff(expectedStart, "minutes");
 
-          let clockInStatus = "on-time";
+//           let clockInStatus = "on-time";
 
-          if (diffMinutes < -20) clockInStatus = "too-early";
-          else if (diffMinutes < 0) clockInStatus = "early";
-          else if (diffMinutes <= 20) clockInStatus = "on-time";
-          else if (diffMinutes <= 90) clockInStatus = "late";
-          else clockInStatus = "very-late";
+//           if (diffMinutes < -20) clockInStatus = "too-early";
+//           else if (diffMinutes < 0) clockInStatus = "early";
+//           else if (diffMinutes <= 20) clockInStatus = "on-time";
+//           else if (diffMinutes <= 90) clockInStatus = "late";
+//           else clockInStatus = "very-late";
 
-          const saved = await AttendanceLog.create({
-            userId,
-            institutionId,
-            branchId,
-            actionType,
-            mode: mode || "offline",
-            gps,
-            timestamp: new Date(timestamp),
-            date,
+//           const saved = await AttendanceLog.create({
+//             userId,
+//             institutionId,
+//             branchId,
+//             actionType,
+//             mode: mode || "offline",
+//             gps,
+//             timestamp: new Date(timestamp),
+//             date,
 
-            clockInStatus,
-            minutesLate: diffMinutes > 0 ? diffMinutes : 0,
+//             clockInStatus,
+//             minutesLate: diffMinutes > 0 ? diffMinutes : 0,
 
-            syncStatus: "synced",
-            serverReceivedAt: new Date(),
-          });
+//             syncStatus: "synced",
+//             serverReceivedAt: new Date(),
+//           });
 
-          results.push({ ...log, syncStatus: "synced", _id: saved._id });
-          continue;
-        }
+//           results.push({ ...log, syncStatus: "synced", _id: saved._id });
+//           continue;
+//         }
 
-        /* ===============================
-           CLOCK-OUT
-        =============================== */
-        if (actionType === "clock-out") {
-          const lastClockIn = await AttendanceLog.findOne({
-            userId,
-            actionType: "clock-in",
-            date,
-          });
+//         /* ===============================
+//            CLOCK-OUT
+//         =============================== */
+//         if (actionType === "clock-out") {
+//           const lastClockIn = await AttendanceLog.findOne({
+//             userId,
+//             actionType: "clock-in",
+//             date,
+//           });
 
-          if (!lastClockIn) {
-            results.push({
-              ...log,
-              syncStatus: "rejected_on_sync",
-              reason: "No clock-in found",
-            });
-            continue;
-          }
+//           if (!lastClockIn) {
+//             results.push({
+//               ...log,
+//               syncStatus: "rejected_on_sync",
+//               reason: "No clock-in found",
+//             });
+//             continue;
+//           }
 
-          const workDurationMinutes = now.diff(
-            moment(lastClockIn.timestamp),
-            "minutes"
-          );
+//           const workDurationMinutes = now.diff(
+//             moment(lastClockIn.timestamp),
+//             "minutes"
+//           );
 
-          let clockOutStatus = "completed";
+//           let clockOutStatus = "completed";
 
-          const [h, m] = settings.workEndTime.split(":").map(Number);
+//           const [h, m] = settings.workEndTime.split(":").map(Number);
 
-          const expectedEnd = moment(timestamp).set({
-            hour: h,
-            minute: m,
-          });
+//           const expectedEnd = moment(timestamp).set({
+//             hour: h,
+//             minute: m,
+//           });
 
-          if (now.isBefore(expectedEnd)) clockOutStatus = "early_exit";
-          else if (now.isAfter(expectedEnd)) clockOutStatus = "overtime";
+//           if (now.isBefore(expectedEnd)) clockOutStatus = "early_exit";
+//           else if (now.isAfter(expectedEnd)) clockOutStatus = "overtime";
 
-          const expectedMinutes = (settings.expectedWorkHours || 8) * 60;
+//           const expectedMinutes = (settings.expectedWorkHours || 8) * 60;
 
-          let productivityStatus = "normal";
-          if (workDurationMinutes < expectedMinutes * 0.5) {
-            productivityStatus = "underworked";
-          }
+//           let productivityStatus = "normal";
+//           if (workDurationMinutes < expectedMinutes * 0.5) {
+//             productivityStatus = "underworked";
+//           }
 
-          const saved = await AttendanceLog.create({
-            userId,
-            institutionId,
-            branchId,
-            actionType,
-            mode: mode || "offline",
-            gps,
-            timestamp: new Date(timestamp),
-            date,
+//           const saved = await AttendanceLog.create({
+//             userId,
+//             institutionId,
+//             branchId,
+//             actionType,
+//             mode: mode || "offline",
+//             gps,
+//             timestamp: new Date(timestamp),
+//             date,
 
-            clockOutStatus,
-            workDurationMinutes,
-            productivityStatus,
+//             clockOutStatus,
+//             workDurationMinutes,
+//             productivityStatus,
 
-            syncStatus: "synced",
-            serverReceivedAt: new Date(),
-          });
+//             syncStatus: "synced",
+//             serverReceivedAt: new Date(),
+//           });
 
-          results.push({ ...log, syncStatus: "synced", _id: saved._id });
-        }
+//           results.push({ ...log, syncStatus: "synced", _id: saved._id });
+//         }
 
-      } catch (innerErr) {
-        console.error("Sync error:", innerErr);
+//       } catch (innerErr) {
+//         console.error("Sync error:", innerErr);
 
-        results.push({
-          ...log,
-          syncStatus: "rejected_on_sync",
-          reason: "Server error",
-        });
-      }
-    }
+//         results.push({
+//           ...log,
+//           syncStatus: "rejected_on_sync",
+//           reason: "Server error",
+//         });
+//       }
+//     }
 
-    return res.status(200).json({
-      message: "Offline logs synchronized.",
-      summary: {
-        total: offlineLogs.length,
-        synced: results.filter(r => r.syncStatus === "synced").length,
-        rejected: results.filter(r => r.syncStatus === "rejected_on_sync").length,
-      },
-      results,
-    });
+//     return res.status(200).json({
+//       message: "Offline logs synchronized.",
+//       summary: {
+//         total: offlineLogs.length,
+//         synced: results.filter(r => r.syncStatus === "synced").length,
+//         rejected: results.filter(r => r.syncStatus === "rejected_on_sync").length,
+//       },
+//       results,
+//     });
 
-  } catch (err) {
-    console.error("Sync error:", err);
-    return res.status(500).json({ message: "Server error during sync." });
-  }
-};
+//   } catch (err) {
+//     console.error("Sync error:", err);
+//     return res.status(500).json({ message: "Server error during sync." });
+//   }
+// };
 
 
 
@@ -2123,6 +2123,441 @@ export const syncOfflineLogs = async (req, res) => {
 //  Replace multiple .find() with MongoDB aggregation pipeline (1 query instead of many)
 //  Add caching (Redis)
 //  Add monthly + department analytics
+
+
+export const syncOfflineLogs = async (req, res) => {
+  try {
+    const { offlineLogs } = req.body;
+
+    const userId =
+      req.user.userId ||
+      req.user.id ||
+      req.user._id;
+
+    const institutionId = req.user.institutionId;
+    const sessionId = req.user.sessionId;
+
+    if (
+      !offlineLogs ||
+      !Array.isArray(offlineLogs) ||
+      offlineLogs.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "No offline logs provided.",
+      });
+    }
+
+    /* ================= USER VALIDATION ================= */
+
+    const user = await User.findById(userId);
+
+    if (!user || !user.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found or inactive",
+      });
+    }
+
+    if (
+      user.activeSession?.sessionId &&
+      sessionId &&
+      user.activeSession.sessionId !== sessionId
+    ) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "Session expired or logged in on another device",
+      });
+    }
+
+    /* ================= SETTINGS ================= */
+
+    const settingsDoc =
+      await InstitutionSetting.findOne({
+        institutionId,
+        isActive: true,
+      });
+
+    const settings = {
+      timezone: "Africa/Lagos",
+      workStartTime: "08:00",
+      workEndTime: "17:00",
+      expectedWorkHours: 8,
+      gracePeriodMinutes: 20,
+      clockingWindow: {
+        earlyMinutes: 20,
+        lateMinutes: 90,
+      },
+      ...(settingsDoc
+        ? settingsDoc.toObject()
+        : {}),
+    };
+
+    const results = [];
+
+    for (const log of offlineLogs) {
+      try {
+        const {
+          branchId = null,
+          gps,
+          actionType,
+          timestamp,
+          syncId,
+          offlineCreatedAt,
+          deviceInfo,
+        } = log;
+
+        /* ================= BASIC VALIDATION ================= */
+
+        if (
+          !timestamp ||
+          !actionType ||
+          !["clock-in", "clock-out"].includes(
+            actionType
+          )
+        ) {
+          results.push({
+            ...log,
+            syncStatus: "rejected_on_sync",
+            reason:
+              "Invalid timestamp or actionType",
+          });
+          continue;
+        }
+
+        const now = moment(timestamp).tz(
+          settings.timezone
+        );
+
+        if (!now.isValid()) {
+          results.push({
+            ...log,
+            syncStatus: "rejected_on_sync",
+            reason: "Invalid timestamp",
+          });
+          continue;
+        }
+
+        const date = now
+          .clone()
+          .startOf("day")
+          .toDate();
+
+        /* ================= GPS NORMALIZE ================= */
+
+        let normalizedGps = null;
+
+        if (
+          gps &&
+          typeof gps.lat === "number" &&
+          typeof gps.lng === "number"
+        ) {
+          normalizedGps = {
+            type: "Point",
+            coordinates: [gps.lng, gps.lat],
+          };
+        }
+
+        /* ================= SYNC DEDUPE ================= */
+
+        if (syncId) {
+          const existingSync =
+            await AttendanceLog.findOne({
+              userId,
+              syncId,
+            });
+
+          if (existingSync) {
+            results.push({
+              ...log,
+              syncStatus: "already_synced",
+              _id: existingSync._id,
+            });
+            continue;
+          }
+        }
+
+        /* ================= DAILY DEDUPE ================= */
+
+        const existing =
+          await AttendanceLog.findOne({
+            userId,
+            institutionId,
+            actionType,
+            date,
+          });
+
+        if (existing) {
+          results.push({
+            ...log,
+            syncStatus: "already_exists",
+            _id: existing._id,
+          });
+          continue;
+        }
+
+        /* ================= CLOCK IN ================= */
+
+        if (actionType === "clock-in") {
+          const [h, m] =
+            settings.workStartTime
+              .split(":")
+              .map(Number);
+
+          const expectedStart = now
+            .clone()
+            .set({
+              hour: h,
+              minute: m,
+              second: 0,
+              millisecond: 0,
+            });
+
+          const diffMinutes = now.diff(
+            expectedStart,
+            "minutes"
+          );
+
+          let clockInStatus = "on-time";
+
+          if (
+            diffMinutes <
+            -settings.clockingWindow
+              .earlyMinutes
+          ) {
+            clockInStatus = "too-early";
+          } else if (diffMinutes < 0) {
+            clockInStatus = "early";
+          } else if (
+            diffMinutes <=
+            settings.gracePeriodMinutes
+          ) {
+            clockInStatus = "on-time";
+          } else if (
+            diffMinutes <=
+            settings.clockingWindow
+              .lateMinutes
+          ) {
+            clockInStatus = "late";
+          } else {
+            clockInStatus = "very-late";
+          }
+
+          const saved =
+            await AttendanceLog.create({
+              userId,
+              institutionId,
+              branchId,
+              syncId,
+              offlineCreatedAt,
+              serverReceivedAt: new Date(),
+
+              actionType: "clock-in",
+              mode: "offline",
+
+              gps: normalizedGps,
+
+              timestamp: now.toDate(),
+              date,
+
+              status: "present",
+
+              clockInStatus,
+              minutesLate:
+                diffMinutes > 0
+                  ? diffMinutes
+                  : 0,
+
+              syncStatus: "synced",
+
+              validationResult:
+                "accepted",
+
+              deviceInfo,
+            });
+
+          results.push({
+            ...log,
+            syncStatus: "synced",
+            _id: saved._id,
+          });
+
+          continue;
+        }
+
+        /* ================= CLOCK OUT ================= */
+
+        if (actionType === "clock-out") {
+          const lastClockIn =
+            await AttendanceLog.findOne({
+              userId,
+              institutionId,
+              actionType:
+                "clock-in",
+              date,
+            });
+
+          if (!lastClockIn) {
+            results.push({
+              ...log,
+              syncStatus:
+                "rejected_on_sync",
+              reason:
+                "No clock-in found",
+            });
+            continue;
+          }
+
+          const workDurationMinutes =
+            now.diff(
+              moment(
+                lastClockIn.timestamp
+              ),
+              "minutes"
+            );
+
+          let clockOutStatus =
+            "completed";
+
+          const [h, m] =
+            settings.workEndTime
+              .split(":")
+              .map(Number);
+
+          const expectedEnd = now
+            .clone()
+            .set({
+              hour: h,
+              minute: m,
+              second: 0,
+              millisecond: 0,
+            });
+
+          if (
+            now.isBefore(
+              expectedEnd
+            )
+          ) {
+            clockOutStatus =
+              "early_exit";
+          } else if (
+            now.isAfter(
+              expectedEnd
+            )
+          ) {
+            clockOutStatus =
+              "overtime";
+          }
+
+          const saved =
+            await AttendanceLog.create({
+              userId,
+              institutionId,
+              branchId,
+              syncId,
+              offlineCreatedAt,
+              serverReceivedAt: new Date(),
+
+              actionType: "clock-out",
+              mode: "offline",
+
+              gps: normalizedGps,
+
+              timestamp: now.toDate(),
+              date,
+
+              clockOutStatus,
+              workDurationMinutes,
+
+              syncStatus: "synced",
+
+              validationResult:
+                "accepted",
+
+              deviceInfo,
+            });
+
+          results.push({
+            ...log,
+            syncStatus: "synced",
+            _id: saved._id,
+          });
+        }
+      } catch (innerErr) {
+        console.error(
+          "Sync error:",
+          innerErr
+        );
+
+        if (
+          innerErr.code === 11000
+        ) {
+          results.push({
+            ...log,
+            syncStatus:
+              "already_exists",
+            reason:
+              "Duplicate log",
+          });
+
+          continue;
+        }
+
+        results.push({
+          ...log,
+          syncStatus:
+            "rejected_on_sync",
+          reason:
+            innerErr.message,
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Offline logs synchronized.",
+      summary: {
+        total:
+          offlineLogs.length,
+        synced: results.filter(
+          (r) =>
+            r.syncStatus ===
+            "synced"
+        ).length,
+        alreadySynced:
+          results.filter((r) =>
+            [
+              "already_synced",
+              "already_exists",
+            ].includes(
+              r.syncStatus
+            )
+          ).length,
+        rejected: results.filter(
+          (r) =>
+            r.syncStatus ===
+            "rejected_on_sync"
+        ).length,
+      },
+      results,
+    });
+  } catch (err) {
+    console.error(
+      "Sync error:",
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Server error during sync.",
+    });
+  }
+};
+
+
 
 export const getRealTimeStatus = async (req, res) => {
   try {
