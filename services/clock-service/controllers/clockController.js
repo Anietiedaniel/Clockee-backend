@@ -2129,6 +2129,8 @@ export const syncOfflineLogs = async (req, res) => {
   try {
     const { offlineLogs } = req.body;
 
+    /* ================= AUTH USER ================= */
+
     const userId =
       req.user.userId ||
       req.user.id ||
@@ -2158,6 +2160,8 @@ export const syncOfflineLogs = async (req, res) => {
         message: "User not found or inactive",
       });
     }
+
+    /* ================= SESSION CHECK ================= */
 
     if (
       user.activeSession?.sessionId &&
@@ -2196,10 +2200,17 @@ export const syncOfflineLogs = async (req, res) => {
 
     const results = [];
 
+    /* =========================================================
+       IMPORTANT FIX:
+       Every query below MUST include:
+       userId + institutionId
+       This ensures ONLY this user's logs are checked.
+    ========================================================= */
+
     for (const log of offlineLogs) {
       try {
         const {
-          branchId = null,
+          branchId = user.branchId || null,
           gps,
           actionType,
           timestamp,
@@ -2244,7 +2255,7 @@ export const syncOfflineLogs = async (req, res) => {
           .startOf("day")
           .toDate();
 
-        /* ================= GPS NORMALIZE ================= */
+        /* ================= GPS NORMALIZATION ================= */
 
         let normalizedGps = null;
 
@@ -2259,12 +2270,13 @@ export const syncOfflineLogs = async (req, res) => {
           };
         }
 
-        /* ================= SYNC DEDUPE ================= */
+        /* ================= SYNC ID DEDUPE ================= */
 
         if (syncId) {
           const existingSync =
             await AttendanceLog.findOne({
               userId,
+              institutionId,
               syncId,
             });
 
@@ -2273,6 +2285,8 @@ export const syncOfflineLogs = async (req, res) => {
               ...log,
               syncStatus: "already_synced",
               _id: existingSync._id,
+              actionType:
+                existingSync.actionType,
             });
             continue;
           }
@@ -2286,6 +2300,7 @@ export const syncOfflineLogs = async (req, res) => {
             institutionId,
             actionType,
             date,
+            isActive: true,
           });
 
         if (existing) {
@@ -2293,11 +2308,17 @@ export const syncOfflineLogs = async (req, res) => {
             ...log,
             syncStatus: "already_exists",
             _id: existing._id,
+            actionType:
+              existing.actionType,
+            reason:
+              actionType === "clock-in"
+                ? "Already clocked in"
+                : "Already clocked out",
           });
           continue;
         }
 
-        /* ================= CLOCK IN ================= */
+        /* ================= CLOCK-IN ================= */
 
         if (actionType === "clock-in") {
           const [h, m] =
@@ -2349,21 +2370,31 @@ export const syncOfflineLogs = async (req, res) => {
               userId,
               institutionId,
               branchId,
-              syncId,
-              offlineCreatedAt,
-              serverReceivedAt: new Date(),
+
+              syncId:
+                syncId || undefined,
+
+              offlineCreatedAt:
+                offlineCreatedAt ||
+                new Date(timestamp),
+
+              serverReceivedAt:
+                new Date(),
 
               actionType: "clock-in",
               mode: "offline",
 
               gps: normalizedGps,
 
-              timestamp: now.toDate(),
+              timestamp:
+                now.toDate(),
+
               date,
 
               status: "present",
 
               clockInStatus,
+
               minutesLate:
                 diffMinutes > 0
                   ? diffMinutes
@@ -2374,19 +2405,23 @@ export const syncOfflineLogs = async (req, res) => {
               validationResult:
                 "accepted",
 
-              deviceInfo,
+              deviceInfo:
+                deviceInfo ||
+                "unknown-device",
             });
 
           results.push({
             ...log,
             syncStatus: "synced",
             _id: saved._id,
+            actionType: "clock-in",
+            clockInStatus,
           });
 
           continue;
         }
 
-        /* ================= CLOCK OUT ================= */
+        /* ================= CLOCK-OUT ================= */
 
         if (actionType === "clock-out") {
           const lastClockIn =
@@ -2396,6 +2431,9 @@ export const syncOfflineLogs = async (req, res) => {
               actionType:
                 "clock-in",
               date,
+              isActive: true,
+            }).sort({
+              timestamp: -1,
             });
 
           if (!lastClockIn) {
@@ -2405,6 +2443,29 @@ export const syncOfflineLogs = async (req, res) => {
                 "rejected_on_sync",
               reason:
                 "No clock-in found",
+            });
+            continue;
+          }
+
+          const existingClockOut =
+            await AttendanceLog.findOne({
+              userId,
+              institutionId,
+              actionType:
+                "clock-out",
+              date,
+              isActive: true,
+            });
+
+          if (existingClockOut) {
+            results.push({
+              ...log,
+              syncStatus:
+                "already_exists",
+              _id:
+                existingClockOut._id,
+              reason:
+                "Already clocked out",
             });
             continue;
           }
@@ -2455,19 +2516,29 @@ export const syncOfflineLogs = async (req, res) => {
               userId,
               institutionId,
               branchId,
-              syncId,
-              offlineCreatedAt,
-              serverReceivedAt: new Date(),
+
+              syncId:
+                syncId || undefined,
+
+              offlineCreatedAt:
+                offlineCreatedAt ||
+                new Date(timestamp),
+
+              serverReceivedAt:
+                new Date(),
 
               actionType: "clock-out",
               mode: "offline",
 
               gps: normalizedGps,
 
-              timestamp: now.toDate(),
+              timestamp:
+                now.toDate(),
+
               date,
 
               clockOutStatus,
+
               workDurationMinutes,
 
               syncStatus: "synced",
@@ -2475,13 +2546,18 @@ export const syncOfflineLogs = async (req, res) => {
               validationResult:
                 "accepted",
 
-              deviceInfo,
+              deviceInfo:
+                deviceInfo ||
+                "unknown-device",
             });
 
           results.push({
             ...log,
             syncStatus: "synced",
             _id: saved._id,
+            actionType: "clock-out",
+            clockOutStatus,
+            workDurationMinutes,
           });
         }
       } catch (innerErr) {
@@ -2509,23 +2585,36 @@ export const syncOfflineLogs = async (req, res) => {
           syncStatus:
             "rejected_on_sync",
           reason:
-            innerErr.message,
+            innerErr.message ||
+            "Server error",
         });
       }
     }
+
+    /* ================= FINAL RESPONSE ================= */
 
     return res.status(200).json({
       success: true,
       message:
         "Offline logs synchronized.",
+
+      user: {
+        userId,
+        institutionId,
+        branchId:
+          user.branchId || null,
+      },
+
       summary: {
         total:
           offlineLogs.length,
+
         synced: results.filter(
           (r) =>
             r.syncStatus ===
             "synced"
         ).length,
+
         alreadySynced:
           results.filter((r) =>
             [
@@ -2535,12 +2624,14 @@ export const syncOfflineLogs = async (req, res) => {
               r.syncStatus
             )
           ).length,
+
         rejected: results.filter(
           (r) =>
             r.syncStatus ===
             "rejected_on_sync"
         ).length,
       },
+
       results,
     });
   } catch (err) {
