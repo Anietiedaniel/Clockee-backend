@@ -15,27 +15,57 @@ export const getMyProfile = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: {
+        /* ================= BASIC INFO ================= */
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
-        institutionId: user.institutionId,
+
+        /* ================= INSTITUTION + BRANCH ================= */
+        institutionId: user.institutionId || null,
+        branchId: user.branchId || null,
+
+        /* ================= INSTITUTION DETAILS ================= */
         institutionName: user.institutionName,
         institutionType: user.institutionType,
+
+        /* ================= USER DETAILS ================= */
         departmentOrUnit: user.departmentOrUnit,
         studentOrStaffId: user.studentOrStaffId,
+
+        /* ================= CONTACT ================= */
         address: user.address,
         phone: user.phone,
+
+        /* ================= CLOCKING ================= */
         clockMode: user.clockMode,
         remoteAccess: user.remoteAccess,
+
+        /* ================= STATUS ================= */
         isActive: user.isActive,
+
+        /* ================= SECURITY SESSION (OPTIONAL) ================= */
+        activeSession: user.activeSession
+          ? {
+              sessionId:
+                user.activeSession.sessionId || null,
+              deviceInfo:
+                user.activeSession.deviceInfo || null,
+              lastLogin:
+                user.activeSession.lastLogin || null,
+            }
+          : null,
+
+        /* ================= TIMESTAMPS ================= */
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
     });
-
   } catch (error) {
-    console.error("Error fetching profile:", error);
+    console.error(
+      "Error fetching profile:",
+      error
+    );
 
     return res.status(500).json({
       success: false,

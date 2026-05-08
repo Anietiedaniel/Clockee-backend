@@ -332,7 +332,9 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    const roles = Array.isArray(user.role) ? user.role : [user.role];
+    const roles = Array.isArray(user.role)
+      ? user.role
+      : [user.role];
 
     if (roles.includes("pending")) {
       return res.status(403).json({
@@ -352,7 +354,10 @@ export async function loginUser(req, res, next) {
 
     /* ================= PASSWORD CHECK ================= */
 
-    const isMatch = await verifyPassword(password, user.passwordHash);
+    const isMatch = await verifyPassword(
+      password,
+      user.passwordHash
+    );
 
     if (!isMatch) {
       return res.status(401).json({
@@ -366,36 +371,58 @@ export async function loginUser(req, res, next) {
     // Staff + Student => one active device only
 
     const isAdmin =
-      roles.includes("admin") || roles.includes("super_admin");
+      roles.includes("admin") ||
+      roles.includes("super_admin");
 
     const isRestrictedSingleDevice =
       !isAdmin &&
-      (roles.includes("staff") || roles.includes("student"));
+      (roles.includes("staff") ||
+        roles.includes("student"));
 
     /* ================= DEVICE INFO ================= */
 
     const normalizedDevice =
       deviceInfo?.trim() || "unknown-device";
 
-    /* ================= SINGLE DEVICE ENFORCEMENT ================= */
+    /* ================= SAME DEVICE RE-LOGIN FIX ================= */
+    /*
+      Prevents:
+      - Same phone being blocked
+      - App reinstall lockout
+      - Token refresh login issue
 
-    if (isRestrictedSingleDevice && user.activeSession?.sessionId) {
-      return res.status(403).json({
-        success: false,
-        status: "ALREADY_LOGGED_IN",
-        message:
-          "This account is already logged in on another device.",
-        activeDevice: user.activeSession.deviceInfo || "unknown-device",
-        lastLogin: user.activeSession.lastLogin,
-      });
+      Logic:
+      If same deviceInfo matches existing device,
+      allow login and refresh session.
+    */
+
+    if (
+      isRestrictedSingleDevice &&
+      user.activeSession?.sessionId
+    ) {
+      const existingDevice =
+        user.activeSession.deviceInfo?.trim();
+
+      const isSameDevice =
+        existingDevice &&
+        existingDevice === normalizedDevice;
+
+      if (!isSameDevice) {
+        return res.status(403).json({
+          success: false,
+          status: "ALREADY_LOGGED_IN",
+          message:
+            "This account is already logged in on another device.",
+          activeDevice:
+            user.activeSession.deviceInfo ||
+            "unknown-device",
+          lastLogin:
+            user.activeSession.lastLogin,
+        });
+      }
     }
 
     /* ================= SESSION CREATION ================= */
-    // Staff/Student:
-    //    first login only until password reset
-    //
-    // Admin/SuperAdmin:
-    //    always allowed, latest login replaces previous session
 
     const sessionId = uuidv4();
 
@@ -414,6 +441,7 @@ export async function loginUser(req, res, next) {
       sessionId,
       role: user.role,
       institutionId: user.institutionId,
+      branchId: user.branchId || null, // 🔥 ADDED
       name: user.name,
       email: user.email,
     });
@@ -423,7 +451,7 @@ export async function loginUser(req, res, next) {
     return res.status(200).json({
       success: true,
       message: isRestrictedSingleDevice
-        ? "Login successful. This device is now linked to your account ."
+        ? "Login successful. This device is now linked to your account."
         : "Login successful.",
 
       token,
@@ -433,17 +461,26 @@ export async function loginUser(req, res, next) {
         name: user.name,
         email: user.email,
         role: user.role,
-        institutionId: user.institutionId,
+
+        /* 🔥 IMPORTANT FOR FRONTEND */
+        institutionId:
+          user.institutionId || null,
+
+        branchId: user.branchId || null,
       },
 
       session: {
-        sessionId: user.activeSession.sessionId,
-        deviceInfo: user.activeSession.deviceInfo,
-        lastLogin: user.activeSession.lastLogin,
+        sessionId:
+          user.activeSession.sessionId,
+        deviceInfo:
+          user.activeSession.deviceInfo,
+        lastLogin:
+          user.activeSession.lastLogin,
       },
 
       securityPolicy: {
-        singleDeviceRestricted: isRestrictedSingleDevice,
+        singleDeviceRestricted:
+          isRestrictedSingleDevice,
         adminBypass: isAdmin,
       },
     });
