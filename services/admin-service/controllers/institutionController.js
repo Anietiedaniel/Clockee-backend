@@ -98,7 +98,11 @@ export const createBranch = async (req, res) => {
       role,
       institutionId: adminInstitutionId,
       userId,
+      id,
+      _id,
     } = req.user;
+
+    const actorUserId = userId || id || _id;
 
     const {
       institutionId: targetInstitutionId,
@@ -106,6 +110,7 @@ export const createBranch = async (req, res) => {
       address,
       latitude,
       longitude,
+      radiusMeters,
     } = req.body;
 
     /* ================= NORMALIZE ROLES ================= */
@@ -122,22 +127,35 @@ export const createBranch = async (req, res) => {
       });
     }
 
-    /* ================= DETERMINE INSTITUTION ================= */
+    /* ================= DETERMINE TARGET INSTITUTION ================= */
 
-    const institutionId = isSuperAdmin
-      ? targetInstitutionId
-      : adminInstitutionId;
+    // SUPER ADMIN:
+    // - Can create for ANY institution
+    // - Uses req.body.institutionId if provided
+    // - Falls back to own institution only if omitted
+    //
+    // ADMIN:
+    // - Restricted to own institution only
+
+    let institutionId;
+
+    if (isSuperAdmin) {
+      institutionId = targetInstitutionId || adminInstitutionId;
+    } else {
+      institutionId = adminInstitutionId;
+    }
 
     if (!institutionId) {
       return res.status(400).json({
         success: false,
-        message: "Institution ID is required",
+        message:
+          "Institution ID is required. Super admin must specify target institutionId.",
       });
     }
 
     /* ================= VALIDATION ================= */
 
-    if (!name) {
+    if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
         message: "Branch name is required",
@@ -145,12 +163,24 @@ export const createBranch = async (req, res) => {
     }
 
     if (
-      typeof latitude !== "number" ||
-      typeof longitude !== "number"
+      latitude === undefined ||
+      longitude === undefined ||
+      isNaN(Number(latitude)) ||
+      isNaN(Number(longitude))
     ) {
       return res.status(400).json({
         success: false,
-        message: "Latitude and longitude must be numbers",
+        message: "Valid latitude and longitude are required",
+      });
+    }
+
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid GPS coordinates",
       });
     }
 
@@ -165,23 +195,33 @@ export const createBranch = async (req, res) => {
       });
     }
 
-    /* ================= OWNER CHECK ================= */
+    /* ================= OWNER / ADMIN ACCESS ================= */
 
     const isOwner =
       institution.owner &&
-      String(institution.owner) === String(userId);
+      String(institution.owner) === String(actorUserId);
 
-    if (!isSuperAdmin && !isOwner) {
-      return res.status(403).json({
-        success: false,
-        message:
-          "Only super admin or institution owner can create branches",
-      });
+    // NORMAL ADMIN:
+    // Must belong to institution + be owner
+    if (!isSuperAdmin) {
+      if (!isOwner) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only institution owner or super admin can create branches",
+        });
+      }
     }
+
+    // SUPER ADMIN:
+    // Bypass owner restriction completely
 
     /* ================= CHECK FEATURE ENABLED ================= */
 
-    const settings = await InstitutionSetting.findOne({ institutionId });
+    const settings = await InstitutionSetting.findOne({
+      institutionId,
+      isActive: true,
+    });
 
     if (!settings?.useBranches) {
       return res.status(400).json({
@@ -190,12 +230,26 @@ export const createBranch = async (req, res) => {
       });
     }
 
+    /* ================= PREVENT DUPLICATE BRANCH ================= */
+
+    const existingBranch = await Branch.findOne({
+      institutionId,
+      name: name.trim(),
+    });
+
+    if (existingBranch) {
+      return res.status(409).json({
+        success: false,
+        message: "Branch with this name already exists",
+      });
+    }
+
     /* ================= GENERATE QR SECRET ================= */
 
     const qrSecret = crypto.randomBytes(16).toString("hex");
 
     const qrPayload = JSON.stringify({
-      institutionId,
+      institutionId: String(institutionId),
       secret: qrSecret,
     });
 
@@ -206,15 +260,22 @@ export const createBranch = async (req, res) => {
     const branch = await Branch.create({
       institutionId,
       name: name.trim(),
-      address: address?.trim(),
+      address: address?.trim() || null,
+
       location: {
         type: "Point",
-        coordinates: [longitude, latitude],
+        coordinates: [lng, lat], // [longitude, latitude]
       },
+
+      radiusMeters:
+        radiusMeters && !isNaN(Number(radiusMeters))
+          ? Number(radiusMeters)
+          : 50,
+
       qrSecret,
     });
 
-    /* ================= UPDATE META ================= */
+    /* ================= UPDATE INSTITUTION META ================= */
 
     await Institution.findByIdAndUpdate(institutionId, {
       $inc: { "meta.totalBranches": 1 },
@@ -223,20 +284,27 @@ export const createBranch = async (req, res) => {
     /* ================= CLEAN RESPONSE ================= */
 
     const branchObj = branch.toObject();
+
     delete branchObj.qrSecret;
+
+    /* ================= RESPONSE ================= */
 
     return res.status(201).json({
       success: true,
       message: "Branch created successfully",
       data: {
         ...branchObj,
+        institution: {
+          _id: institution._id,
+          name: institution.name,
+          type: institution.type,
+        },
         qrCodeUrl,
-        createdBy: userId,
+        createdBy: actorUserId,
       },
     });
-
   } catch (err) {
-    console.error("Create branch error:", err.message);
+    console.error("Create branch error:", err);
 
     return res.status(500).json({
       success: false,
