@@ -94,79 +94,6 @@ export async function registerUser(req, res, next) {
 
 
 
-
-// export async function loginUser(req, res, next) {
-//   try {
-//     const { email, password, deviceInfo } = req.body; 
-
-//     if (!email || !password) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email and password are required",
-//       });
-//     }
-
-//     const user = await User.findOne({ email });
-//     if (!user) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Invalid email or password",
-//       });
-//     }
-
-//     // ⚠️ FIX: role is an array in your schema
-//     if (user.role?.includes("pending")) {
-//       return res.status(403).json({
-//         success: false,
-//         status: "PENDING_APPROVAL",
-//         message: "Account awaiting approval by admin",
-//       });
-//     }
-
-//     const isMatch = await verifyPassword(password, user.passwordHash);
-//     if (!isMatch) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Invalid email or password",
-//       });
-//     }
-
-//     // ================= NEW: SESSION =================
-//     const sessionId = uuidv4();
-
-//     user.activeSession = {
-//       sessionId,
-//       deviceInfo: deviceInfo || "unknown device",
-//       lastLogin: new Date(),
-//     };
-
-//     await user.save();
-
-//     // ================= TOKEN =================
-//     const token = generateToken({
-//       userId: user._id,
-//       sessionId, // 🔥 VERY IMPORTANT
-//     });
-
-//     res.json({
-//       success: true,
-//       message: "Login successful",
-//       token,
-//       user: {
-//         id: user._id,
-//         name: user.name,
-//         email: user.email,
-//         role: user.role,
-//         institutionId: user.institutionId,
-//       },
-//       session: user.activeSession,
-//     });
-
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-
 // export async function loginUser(req, res, next) {
 //   try {
 //     const { email, password, deviceInfo } = req.body;
@@ -202,7 +129,11 @@ export async function registerUser(req, res, next) {
 //       });
 //     }
 
-//     if (user.role?.includes("pending")) {
+//     const roles = Array.isArray(user.role)
+//       ? user.role
+//       : [user.role];
+
+//     if (roles.includes("pending")) {
 //       return res.status(403).json({
 //         success: false,
 //         status: "PENDING_APPROVAL",
@@ -210,7 +141,7 @@ export async function registerUser(req, res, next) {
 //       });
 //     }
 
-//     if (user.role?.includes("rejected")) {
+//     if (roles.includes("rejected")) {
 //       return res.status(403).json({
 //         success: false,
 //         status: "REJECTED",
@@ -220,7 +151,10 @@ export async function registerUser(req, res, next) {
 
 //     /* ================= PASSWORD CHECK ================= */
 
-//     const isMatch = await verifyPassword(password, user.passwordHash);
+//     const isMatch = await verifyPassword(
+//       password,
+//       user.passwordHash
+//     );
 
 //     if (!isMatch) {
 //       return res.status(401).json({
@@ -229,28 +163,69 @@ export async function registerUser(req, res, next) {
 //       });
 //     }
 
-//     /* ================= TRUE ONE-TIME LOGIN ================= */
-//     // Once activeSession exists, NO second login allowed from ANY device
-//     // Only password reset should clear activeSession
+//     /* ================= ROLE POLICY ================= */
+//     // Admin + Super Admin => unrestricted login
+//     // Staff + Student => one active device only
 
-//     if (user.activeSession?.sessionId) {
-//       return res.status(403).json({
-//         success: false,
-//         status: "ALREADY_LOGGED_IN",
-//         message:
-//           "This account is already logged in on a device.",
-//         activeDevice: user.activeSession.deviceInfo || "unknown-device",
-//         lastLogin: user.activeSession.lastLogin,
-//       });
+//     const isAdmin =
+//       roles.includes("admin") ||
+//       roles.includes("super_admin");
+
+//     const isRestrictedSingleDevice =
+//       !isAdmin &&
+//       (roles.includes("staff") ||
+//         roles.includes("student"));
+
+//     /* ================= DEVICE INFO ================= */
+
+//     const normalizedDevice =
+//       deviceInfo?.trim() || "unknown-device";
+
+//     /* ================= SAME DEVICE RE-LOGIN FIX ================= */
+//     /*
+//       Prevents:
+//       - Same phone being blocked
+//       - App reinstall lockout
+//       - Token refresh login issue
+
+//       Logic:
+//       If same deviceInfo matches existing device,
+//       allow login and refresh session.
+//     */
+
+//     if (
+//       isRestrictedSingleDevice &&
+//       user.activeSession?.sessionId
+//     ) {
+//       const existingDevice =
+//         user.activeSession.deviceInfo?.trim();
+
+//       const isSameDevice =
+//         existingDevice &&
+//         existingDevice === normalizedDevice;
+
+//       if (!isSameDevice) {
+//         return res.status(403).json({
+//           success: false,
+//           status: "ALREADY_LOGGED_IN",
+//           message:
+//             "This account is already logged in on another device.",
+//           activeDevice:
+//             user.activeSession.deviceInfo ||
+//             "unknown-device",
+//           lastLogin:
+//             user.activeSession.lastLogin,
+//         });
+//       }
 //     }
 
-//     /* ================= NEW SESSION ================= */
+//     /* ================= SESSION CREATION ================= */
 
 //     const sessionId = uuidv4();
 
 //     user.activeSession = {
 //       sessionId,
-//       deviceInfo: deviceInfo?.trim() || "unknown-device",
+//       deviceInfo: normalizedDevice,
 //       lastLogin: new Date(),
 //     };
 
@@ -260,9 +235,10 @@ export async function registerUser(req, res, next) {
 
 //     const token = generateToken({
 //       userId: user._id,
-//       sessionId, // MUST be validated in protect middleware
+//       sessionId,
 //       role: user.role,
 //       institutionId: user.institutionId,
+//       branchId: user.branchId || null, // 🔥 ADDED
 //       name: user.name,
 //       email: user.email,
 //     });
@@ -271,8 +247,9 @@ export async function registerUser(req, res, next) {
 
 //     return res.status(200).json({
 //       success: true,
-//       message:
-//         "Login successful. This device is now permanently linked until password reset.",
+//       message: isRestrictedSingleDevice
+//         ? "Login successful. This device is now linked to your account."
+//         : "Login successful.",
 
 //       token,
 
@@ -281,13 +258,27 @@ export async function registerUser(req, res, next) {
 //         name: user.name,
 //         email: user.email,
 //         role: user.role,
-//         institutionId: user.institutionId,
+
+//         /* 🔥 IMPORTANT FOR FRONTEND */
+//         institutionId:
+//           user.institutionId || null,
+
+//         branchId: user.branchId || null,
 //       },
 
 //       session: {
-//         sessionId: user.activeSession.sessionId,
-//         deviceInfo: user.activeSession.deviceInfo,
-//         lastLogin: user.activeSession.lastLogin,
+//         sessionId:
+//           user.activeSession.sessionId,
+//         deviceInfo:
+//           user.activeSession.deviceInfo,
+//         lastLogin:
+//           user.activeSession.lastLogin,
+//       },
+
+//       securityPolicy: {
+//         singleDeviceRestricted:
+//           isRestrictedSingleDevice,
+//         adminBypass: isAdmin,
 //       },
 //     });
 //   } catch (err) {
@@ -295,6 +286,7 @@ export async function registerUser(req, res, next) {
 //     next(err);
 //   }
 // }
+
 
 
 export async function loginUser(req, res, next) {
@@ -366,6 +358,33 @@ export async function loginUser(req, res, next) {
       });
     }
 
+    /* ================= OWNER CHECK ================= */
+    /*
+      No "owner" role required.
+      Frontend can check:
+      user.isInstitutionOwner === true
+    */
+
+    let isInstitutionOwner = false;
+
+    if (user.institutionId) {
+      const institution = await Institution.findById(
+        user.institutionId
+      ).select("owner createdBy");
+
+      if (
+        institution &&
+        (
+          String(institution.owner) ===
+            String(user._id) ||
+          String(institution.createdBy) ===
+            String(user._id)
+        )
+      ) {
+        isInstitutionOwner = true;
+      }
+    }
+
     /* ================= ROLE POLICY ================= */
     // Admin + Super Admin => unrestricted login
     // Staff + Student => one active device only
@@ -385,16 +404,6 @@ export async function loginUser(req, res, next) {
       deviceInfo?.trim() || "unknown-device";
 
     /* ================= SAME DEVICE RE-LOGIN FIX ================= */
-    /*
-      Prevents:
-      - Same phone being blocked
-      - App reinstall lockout
-      - Token refresh login issue
-
-      Logic:
-      If same deviceInfo matches existing device,
-      allow login and refresh session.
-    */
 
     if (
       isRestrictedSingleDevice &&
@@ -441,7 +450,11 @@ export async function loginUser(req, res, next) {
       sessionId,
       role: user.role,
       institutionId: user.institutionId,
-      branchId: user.branchId || null, // 🔥 ADDED
+      branchId: user.branchId || null,
+
+      // 🔥 FRONTEND OWNER CHECK
+      isInstitutionOwner,
+
       name: user.name,
       email: user.email,
     });
@@ -462,18 +475,24 @@ export async function loginUser(req, res, next) {
         email: user.email,
         role: user.role,
 
-        /* 🔥 IMPORTANT FOR FRONTEND */
+        /* 🔥 IMPORTANT */
         institutionId:
           user.institutionId || null,
 
-        branchId: user.branchId || null,
+        branchId:
+          user.branchId || null,
+
+        /* 🔥 OWNER FLAG */
+        isInstitutionOwner,
       },
 
       session: {
         sessionId:
           user.activeSession.sessionId,
+
         deviceInfo:
           user.activeSession.deviceInfo,
+
         lastLogin:
           user.activeSession.lastLogin,
       },
@@ -481,6 +500,7 @@ export async function loginUser(req, res, next) {
       securityPolicy: {
         singleDeviceRestricted:
           isRestrictedSingleDevice,
+
         adminBypass: isAdmin,
       },
     });
@@ -489,6 +509,7 @@ export async function loginUser(req, res, next) {
     next(err);
   }
 }
+
 
 
 export const logoutUser = async (req, res) => {
