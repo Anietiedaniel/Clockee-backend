@@ -3,7 +3,6 @@ import crypto from "crypto";
 import nodemailer from "nodemailer";
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
-import { Institution } from "@clockee/shared/models/Institution.js";
 import { v4 as uuidv4 } from "uuid";
 import {
   User,
@@ -94,6 +93,210 @@ export async function registerUser(req, res, next) {
 }
 
 
+
+
+// export async function loginUser(req, res, next) {
+//   try {
+//     const { email, password, deviceInfo } = req.body; 
+
+//     if (!email || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email and password are required",
+//       });
+//     }
+
+//     const user = await User.findOne({ email });
+//     if (!user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+
+//     // ⚠️ FIX: role is an array in your schema
+//     if (user.role?.includes("pending")) {
+//       return res.status(403).json({
+//         success: false,
+//         status: "PENDING_APPROVAL",
+//         message: "Account awaiting approval by admin",
+//       });
+//     }
+
+//     const isMatch = await verifyPassword(password, user.passwordHash);
+//     if (!isMatch) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+
+//     // ================= NEW: SESSION =================
+//     const sessionId = uuidv4();
+
+//     user.activeSession = {
+//       sessionId,
+//       deviceInfo: deviceInfo || "unknown device",
+//       lastLogin: new Date(),
+//     };
+
+//     await user.save();
+
+//     // ================= TOKEN =================
+//     const token = generateToken({
+//       userId: user._id,
+//       sessionId, // 🔥 VERY IMPORTANT
+//     });
+
+//     res.json({
+//       success: true,
+//       message: "Login successful",
+//       token,
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         role: user.role,
+//         institutionId: user.institutionId,
+//       },
+//       session: user.activeSession,
+//     });
+
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+
+// export async function loginUser(req, res, next) {
+//   try {
+//     const { email, password, deviceInfo } = req.body;
+
+//     /* ================= BASIC VALIDATION ================= */
+
+//     if (!email || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email and password are required",
+//       });
+//     }
+
+//     /* ================= FETCH USER ================= */
+
+//     const user = await User.findOne({
+//       email: email.toLowerCase().trim(),
+//     });
+
+//     if (!user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+
+//     /* ================= ACCOUNT STATUS ================= */
+
+//     if (!user.isActive) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Account is deactivated",
+//       });
+//     }
+
+//     if (user.role?.includes("pending")) {
+//       return res.status(403).json({
+//         success: false,
+//         status: "PENDING_APPROVAL",
+//         message: "Account awaiting approval by admin",
+//       });
+//     }
+
+//     if (user.role?.includes("rejected")) {
+//       return res.status(403).json({
+//         success: false,
+//         status: "REJECTED",
+//         message: "Account access denied",
+//       });
+//     }
+
+//     /* ================= PASSWORD CHECK ================= */
+
+//     const isMatch = await verifyPassword(password, user.passwordHash);
+
+//     if (!isMatch) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+
+//     /* ================= TRUE ONE-TIME LOGIN ================= */
+//     // Once activeSession exists, NO second login allowed from ANY device
+//     // Only password reset should clear activeSession
+
+//     if (user.activeSession?.sessionId) {
+//       return res.status(403).json({
+//         success: false,
+//         status: "ALREADY_LOGGED_IN",
+//         message:
+//           "This account is already logged in on a device.",
+//         activeDevice: user.activeSession.deviceInfo || "unknown-device",
+//         lastLogin: user.activeSession.lastLogin,
+//       });
+//     }
+
+//     /* ================= NEW SESSION ================= */
+
+//     const sessionId = uuidv4();
+
+//     user.activeSession = {
+//       sessionId,
+//       deviceInfo: deviceInfo?.trim() || "unknown-device",
+//       lastLogin: new Date(),
+//     };
+
+//     await user.save();
+
+//     /* ================= TOKEN ================= */
+
+//     const token = generateToken({
+//       userId: user._id,
+//       sessionId, // MUST be validated in protect middleware
+//       role: user.role,
+//       institutionId: user.institutionId,
+//       name: user.name,
+//       email: user.email,
+//     });
+
+//     /* ================= RESPONSE ================= */
+
+//     return res.status(200).json({
+//       success: true,
+//       message:
+//         "Login successful. This device is now permanently linked until password reset.",
+
+//       token,
+
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         role: user.role,
+//         institutionId: user.institutionId,
+//       },
+
+//       session: {
+//         sessionId: user.activeSession.sessionId,
+//         deviceInfo: user.activeSession.deviceInfo,
+//         lastLogin: user.activeSession.lastLogin,
+//       },
+//     });
+//   } catch (err) {
+//     console.error("Login error:", err);
+//     next(err);
+//   }
+// }
+
+
 export async function loginUser(req, res, next) {
   try {
     const { email, password, deviceInfo } = req.body;
@@ -129,9 +332,7 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    const roles = Array.isArray(user.role)
-      ? user.role
-      : [user.role];
+    const roles = Array.isArray(user.role) ? user.role : [user.role];
 
     if (roles.includes("pending")) {
       return res.status(403).json({
@@ -151,10 +352,7 @@ export async function loginUser(req, res, next) {
 
     /* ================= PASSWORD CHECK ================= */
 
-    const isMatch = await verifyPassword(
-      password,
-      user.passwordHash
-    );
+    const isMatch = await verifyPassword(password, user.passwordHash);
 
     if (!isMatch) {
       return res.status(401).json({
@@ -163,50 +361,16 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    /* ================= OWNER CHECK ================= */
-    /*
-      Goal:
-      Frontend should know if this user owns the institution
-      even if role !== "owner"
-    */
-
-    let isInstitutionOwner = false;
-    let institutionOwnerId = null;
-
-    if (user.institutionId) {
-      const institution =
-        await Institution.findById(
-          user.institutionId
-        ).select("_id owner createdBy name");
-
-      if (institution) {
-        institutionOwnerId =
-          institution.owner ||
-          institution.createdBy ||
-          null;
-
-        if (
-          institutionOwnerId &&
-          String(institutionOwnerId) ===
-            String(user._id)
-        ) {
-          isInstitutionOwner = true;
-        }
-      }
-    }
-
     /* ================= ROLE POLICY ================= */
     // Admin + Super Admin => unrestricted login
     // Staff + Student => one active device only
 
     const isAdmin =
-      roles.includes("admin") ||
-      roles.includes("super_admin");
+      roles.includes("admin") || roles.includes("super_admin");
 
     const isRestrictedSingleDevice =
       !isAdmin &&
-      (roles.includes("staff") ||
-        roles.includes("student"));
+      (roles.includes("staff") || roles.includes("student"));
 
     /* ================= DEVICE INFO ================= */
 
@@ -215,24 +379,23 @@ export async function loginUser(req, res, next) {
 
     /* ================= SINGLE DEVICE ENFORCEMENT ================= */
 
-    if (
-      isRestrictedSingleDevice &&
-      user.activeSession?.sessionId
-    ) {
+    if (isRestrictedSingleDevice && user.activeSession?.sessionId) {
       return res.status(403).json({
         success: false,
         status: "ALREADY_LOGGED_IN",
         message:
           "This account is already logged in on another device.",
-        activeDevice:
-          user.activeSession.deviceInfo ||
-          "unknown-device",
-        lastLogin:
-          user.activeSession.lastLogin,
+        activeDevice: user.activeSession.deviceInfo || "unknown-device",
+        lastLogin: user.activeSession.lastLogin,
       });
     }
 
     /* ================= SESSION CREATION ================= */
+    // Staff/Student:
+    //    first login only until password reset
+    //
+    // Admin/SuperAdmin:
+    //    always allowed, latest login replaces previous session
 
     const sessionId = uuidv4();
 
@@ -251,11 +414,6 @@ export async function loginUser(req, res, next) {
       sessionId,
       role: user.role,
       institutionId: user.institutionId,
-      branchId: user.branchId || null,
-
-      // 🔥 Important for frontend
-      isInstitutionOwner,
-
       name: user.name,
       email: user.email,
     });
@@ -265,7 +423,7 @@ export async function loginUser(req, res, next) {
     return res.status(200).json({
       success: true,
       message: isRestrictedSingleDevice
-        ? "Login successful. This device is now linked to your account."
+        ? "Login successful. This device is now linked to your account ."
         : "Login successful.",
 
       token,
@@ -274,50 +432,18 @@ export async function loginUser(req, res, next) {
         id: user._id,
         name: user.name,
         email: user.email,
-
-        /* Existing role */
         role: user.role,
-
-        /* Core IDs */
-        institutionId:
-          user.institutionId || null,
-
-        branchId:
-          user.branchId || null,
-
-        /* 🔥 FRONTEND OWNER DETECTION */
-        isInstitutionOwner,
-
-        /* Optional verification */
-        institutionOwnerId,
-
-        /* 🔥 Suggested dashboard type */
-        dashboardType: isInstitutionOwner
-          ? "owner"
-          : roles.includes("super_admin")
-          ? "super_admin"
-          : roles.includes("admin")
-          ? "admin"
-          : roles.includes("student")
-          ? "student"
-          : "staff",
+        institutionId: user.institutionId,
       },
 
       session: {
-        sessionId:
-          user.activeSession.sessionId,
-
-        deviceInfo:
-          user.activeSession.deviceInfo,
-
-        lastLogin:
-          user.activeSession.lastLogin,
+        sessionId: user.activeSession.sessionId,
+        deviceInfo: user.activeSession.deviceInfo,
+        lastLogin: user.activeSession.lastLogin,
       },
 
       securityPolicy: {
-        singleDeviceRestricted:
-          isRestrictedSingleDevice,
-
+        singleDeviceRestricted: isRestrictedSingleDevice,
         adminBypass: isAdmin,
       },
     });
@@ -326,9 +452,6 @@ export async function loginUser(req, res, next) {
     next(err);
   }
 }
-
-
-
 
 
 export const logoutUser = async (req, res) => {
