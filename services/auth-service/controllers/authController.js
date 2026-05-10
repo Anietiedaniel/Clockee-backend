@@ -17,6 +17,8 @@ import {
   TokenBlacklist,
 } from "@clockee/shared";
 
+import { Institution} from "@clockee/shared";
+
 
 
 
@@ -28,21 +30,59 @@ if (!JWT_SECRET) {
 }
 
 
-function generateToken({ userId, sessionId, role, institutionId, name, email }) {
+// function generateToken({ userId, sessionId, role, institutionId, name, email }) {
+//   return jwt.sign(
+//     {
+//       userId,
+//       sessionId,
+//       role,
+//       institutionId,
+//       name,
+//       email,
+//     },
+//     process.env.JWT_SECRET,
+//     { expiresIn: "30y" }
+//   );
+// }
+
+
+
+export function generateToken({
+  userId,
+  sessionId,
+  role = [],
+  institutionId = null,
+  branchId = null,
+
+  /*  OWNER SUPPORT */
+  isInstitutionOwner = false,
+  dashboardType = "staff",
+
+  name = "",
+  email = "",
+}) {
   return jwt.sign(
     {
       userId,
       sessionId,
+
       role,
+
       institutionId,
+      branchId,
+
+      isInstitutionOwner,
+      dashboardType,
+
       name,
       email,
     },
     process.env.JWT_SECRET,
-    { expiresIn: "30y" }
+    {
+      expiresIn: "30d",
+    }
   );
 }
-
 
 
 export async function registerUser(req, res, next) {
@@ -93,80 +133,6 @@ export async function registerUser(req, res, next) {
 }
 
 
-
-
-// export async function loginUser(req, res, next) {
-//   try {
-//     const { email, password, deviceInfo } = req.body; 
-
-//     if (!email || !password) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email and password are required",
-//       });
-//     }
-
-//     const user = await User.findOne({ email });
-//     if (!user) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Invalid email or password",
-//       });
-//     }
-
-//     // ⚠️ FIX: role is an array in your schema
-//     if (user.role?.includes("pending")) {
-//       return res.status(403).json({
-//         success: false,
-//         status: "PENDING_APPROVAL",
-//         message: "Account awaiting approval by admin",
-//       });
-//     }
-
-//     const isMatch = await verifyPassword(password, user.passwordHash);
-//     if (!isMatch) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Invalid email or password",
-//       });
-//     }
-
-//     // ================= NEW: SESSION =================
-//     const sessionId = uuidv4();
-
-//     user.activeSession = {
-//       sessionId,
-//       deviceInfo: deviceInfo || "unknown device",
-//       lastLogin: new Date(),
-//     };
-
-//     await user.save();
-
-//     // ================= TOKEN =================
-//     const token = generateToken({
-//       userId: user._id,
-//       sessionId, // 🔥 VERY IMPORTANT
-//     });
-
-//     res.json({
-//       success: true,
-//       message: "Login successful",
-//       token,
-//       user: {
-//         id: user._id,
-//         name: user.name,
-//         email: user.email,
-//         role: user.role,
-//         institutionId: user.institutionId,
-//       },
-//       session: user.activeSession,
-//     });
-
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-
 // export async function loginUser(req, res, next) {
 //   try {
 //     const { email, password, deviceInfo } = req.body;
@@ -202,7 +168,9 @@ export async function registerUser(req, res, next) {
 //       });
 //     }
 
-//     if (user.role?.includes("pending")) {
+//     const roles = Array.isArray(user.role) ? user.role : [user.role];
+
+//     if (roles.includes("pending")) {
 //       return res.status(403).json({
 //         success: false,
 //         status: "PENDING_APPROVAL",
@@ -210,7 +178,7 @@ export async function registerUser(req, res, next) {
 //       });
 //     }
 
-//     if (user.role?.includes("rejected")) {
+//     if (roles.includes("rejected")) {
 //       return res.status(403).json({
 //         success: false,
 //         status: "REJECTED",
@@ -229,28 +197,47 @@ export async function registerUser(req, res, next) {
 //       });
 //     }
 
-//     /* ================= TRUE ONE-TIME LOGIN ================= */
-//     // Once activeSession exists, NO second login allowed from ANY device
-//     // Only password reset should clear activeSession
+//     /* ================= ROLE POLICY ================= */
+//     // Admin + Super Admin => unrestricted login
+//     // Staff + Student => one active device only
 
-//     if (user.activeSession?.sessionId) {
+//     const isAdmin =
+//       roles.includes("admin") || roles.includes("super_admin");
+
+//     const isRestrictedSingleDevice =
+//       !isAdmin &&
+//       (roles.includes("staff") || roles.includes("student"));
+
+//     /* ================= DEVICE INFO ================= */
+
+//     const normalizedDevice =
+//       deviceInfo?.trim() || "unknown-device";
+
+//     /* ================= SINGLE DEVICE ENFORCEMENT ================= */
+
+//     if (isRestrictedSingleDevice && user.activeSession?.sessionId) {
 //       return res.status(403).json({
 //         success: false,
 //         status: "ALREADY_LOGGED_IN",
 //         message:
-//           "This account is already logged in on a device.",
+//           "This account is already logged in on another device.",
 //         activeDevice: user.activeSession.deviceInfo || "unknown-device",
 //         lastLogin: user.activeSession.lastLogin,
 //       });
 //     }
 
-//     /* ================= NEW SESSION ================= */
+//     /* ================= SESSION CREATION ================= */
+//     // Staff/Student:
+//     //    first login only until password reset
+//     //
+//     // Admin/SuperAdmin:
+//     //    always allowed, latest login replaces previous session
 
 //     const sessionId = uuidv4();
 
 //     user.activeSession = {
 //       sessionId,
-//       deviceInfo: deviceInfo?.trim() || "unknown-device",
+//       deviceInfo: normalizedDevice,
 //       lastLogin: new Date(),
 //     };
 
@@ -260,7 +247,7 @@ export async function registerUser(req, res, next) {
 
 //     const token = generateToken({
 //       userId: user._id,
-//       sessionId, // MUST be validated in protect middleware
+//       sessionId,
 //       role: user.role,
 //       institutionId: user.institutionId,
 //       name: user.name,
@@ -271,8 +258,9 @@ export async function registerUser(req, res, next) {
 
 //     return res.status(200).json({
 //       success: true,
-//       message:
-//         "Login successful. This device is now permanently linked until password reset.",
+//       message: isRestrictedSingleDevice
+//         ? "Login successful. This device is now linked to your account ."
+//         : "Login successful.",
 
 //       token,
 
@@ -288,6 +276,11 @@ export async function registerUser(req, res, next) {
 //         sessionId: user.activeSession.sessionId,
 //         deviceInfo: user.activeSession.deviceInfo,
 //         lastLogin: user.activeSession.lastLogin,
+//       },
+
+//       securityPolicy: {
+//         singleDeviceRestricted: isRestrictedSingleDevice,
+//         adminBypass: isAdmin,
 //       },
 //     });
 //   } catch (err) {
@@ -332,7 +325,9 @@ export async function loginUser(req, res, next) {
       });
     }
 
-    const roles = Array.isArray(user.role) ? user.role : [user.role];
+    const roles = Array.isArray(user.role)
+      ? user.role
+      : [user.role];
 
     if (roles.includes("pending")) {
       return res.status(403).json({
@@ -352,7 +347,10 @@ export async function loginUser(req, res, next) {
 
     /* ================= PASSWORD CHECK ================= */
 
-    const isMatch = await verifyPassword(password, user.passwordHash);
+    const isMatch = await verifyPassword(
+      password,
+      user.passwordHash
+    );
 
     if (!isMatch) {
       return res.status(401).json({
@@ -361,41 +359,83 @@ export async function loginUser(req, res, next) {
       });
     }
 
+    /* =====================================================
+       OWNER CHECK FROM INSTITUTION
+    ===================================================== */
+
+    let isInstitutionOwner = false;
+
+    if (user.institutionId) {
+      const institution =
+        await Institution.findById(
+          user.institutionId
+        ).select("owner");
+
+      if (
+        institution?.owner &&
+        String(institution.owner) ===
+          String(user._id)
+      ) {
+        isInstitutionOwner = true;
+      }
+    }
+
+    /* ================= DASHBOARD TYPE ================= */
+
+    const dashboardType = isInstitutionOwner
+      ? "owner"
+      : roles.includes("super_admin")
+      ? "super_admin"
+      : roles.includes("admin")
+      ? "admin"
+      : roles.includes("student")
+      ? "student"
+      : "staff";
+
     /* ================= ROLE POLICY ================= */
-    // Admin + Super Admin => unrestricted login
-    // Staff + Student => one active device only
 
     const isAdmin =
-      roles.includes("admin") || roles.includes("super_admin");
+      roles.includes("admin") ||
+      roles.includes("super_admin");
 
     const isRestrictedSingleDevice =
       !isAdmin &&
-      (roles.includes("staff") || roles.includes("student"));
+      (roles.includes("staff") ||
+        roles.includes("student"));
 
-    /* ================= DEVICE INFO ================= */
+    /* ================= DEVICE ================= */
 
     const normalizedDevice =
       deviceInfo?.trim() || "unknown-device";
 
-    /* ================= SINGLE DEVICE ENFORCEMENT ================= */
+    /* ================= SINGLE DEVICE ================= */
 
-    if (isRestrictedSingleDevice && user.activeSession?.sessionId) {
-      return res.status(403).json({
-        success: false,
-        status: "ALREADY_LOGGED_IN",
-        message:
-          "This account is already logged in on another device.",
-        activeDevice: user.activeSession.deviceInfo || "unknown-device",
-        lastLogin: user.activeSession.lastLogin,
-      });
+    if (
+      isRestrictedSingleDevice &&
+      user.activeSession?.sessionId
+    ) {
+      const existingDevice =
+        user.activeSession.deviceInfo?.trim();
+
+      const isSameDevice =
+        existingDevice === normalizedDevice;
+
+      if (!isSameDevice) {
+        return res.status(403).json({
+          success: false,
+          status: "ALREADY_LOGGED_IN",
+          message:
+            "This account is already logged in on another device.",
+          activeDevice:
+            user.activeSession.deviceInfo ||
+            "unknown-device",
+          lastLogin:
+            user.activeSession.lastLogin,
+        });
+      }
     }
 
-    /* ================= SESSION CREATION ================= */
-    // Staff/Student:
-    //    first login only until password reset
-    //
-    // Admin/SuperAdmin:
-    //    always allowed, latest login replaces previous session
+    /* ================= SESSION ================= */
 
     const sessionId = uuidv4();
 
@@ -412,8 +452,18 @@ export async function loginUser(req, res, next) {
     const token = generateToken({
       userId: user._id,
       sessionId,
-      role: user.role,
-      institutionId: user.institutionId,
+
+      role: roles,
+
+      institutionId:
+        user.institutionId || null,
+
+      branchId:
+        user.branchId || null,
+
+      isInstitutionOwner,
+      dashboardType,
+
       name: user.name,
       email: user.email,
     });
@@ -422,8 +472,9 @@ export async function loginUser(req, res, next) {
 
     return res.status(200).json({
       success: true,
+
       message: isRestrictedSingleDevice
-        ? "Login successful. This device is now linked to your account ."
+        ? "Login successful. This device is now linked to your account."
         : "Login successful.",
 
       token,
@@ -432,18 +483,31 @@ export async function loginUser(req, res, next) {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role,
-        institutionId: user.institutionId,
+
+        role: roles,
+
+        institutionId:
+          user.institutionId || null,
+
+        branchId:
+          user.branchId || null,
+
+        isInstitutionOwner,
+
+        dashboardType,
       },
 
       session: {
-        sessionId: user.activeSession.sessionId,
-        deviceInfo: user.activeSession.deviceInfo,
-        lastLogin: user.activeSession.lastLogin,
+        sessionId,
+        deviceInfo: normalizedDevice,
+        lastLogin:
+          user.activeSession.lastLogin,
       },
 
       securityPolicy: {
-        singleDeviceRestricted: isRestrictedSingleDevice,
+        singleDeviceRestricted:
+          isRestrictedSingleDevice,
+
         adminBypass: isAdmin,
       },
     });

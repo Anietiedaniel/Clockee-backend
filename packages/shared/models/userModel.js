@@ -67,6 +67,8 @@ const userSchema = new mongoose.Schema(
       },
     },
 
+  
+
     clockMode: {
       type: String,
       enum: ["onsite", "remote", "hybrid", "field"],
