@@ -1,7 +1,7 @@
 import express from "express";
 import  {protect}  from "@clockee/shared";
 import { authorizeAdmin} from "../middleware/authorizeAdmin.js";
-import { authorizeSuperAdmin } from "../middleware/authorizeSuperAdmin.js";
+// import { authorizeSuperAdmin } from "../middleware/authorizeSuperAdmin.js";
 import {
   createBranch,
   getBranches,
@@ -54,32 +54,32 @@ router.get(
 );
 
 
-// GET /admin/institutions
+// GET /admin/institutions //
 router.patch(
   "/institution/branches/update/:id",
   protect,
-  authorizeSuperAdmin,
+  authorizeAdmin,
   updateBranch
 );
 
 router.patch(
   "/institution/branches/:institutionId/assign-user/:id",
   protect,
-  authorizeSuperAdmin,
+  authorizeAdmin,
   assignUserToBranch
 );
 
 router.patch(
   "/institution/branches/reactivate/:id",
   protect,
-  authorizeSuperAdmin,
+  authorizeAdmin,
   reactivateBranch
 );
 
 router.patch(
   "/institution/branches/deactivate/:id",
   protect,
-  authorizeSuperAdmin,
+  authorizeAdmin,
   deactivateBranch
 );
 
