@@ -7,11 +7,12 @@ import compression from "compression";
 import { sendEmail } from "../email-service/emailService.js";
 
 import {connectDB} from "@clockee/shared";
+import adminRoutes from "./routes/adminRoutes.js";
 import institutionRoutes from "./routes/institutionRoutes.js";
 import shiftRoutes from "./routes/shiftRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import superAdminRoutes from "./routes/superAdminRoutes.js";
-import adminRoutes from "./routes/adminRoutes.js";
+
 import cron from "node-cron";
 import fetch from "node-fetch"; // if not available natively
 
@@ -94,8 +95,9 @@ app.get("/test-email", async (req, res) => {
 
 
  
-app.use("/admin", superAdminRoutes);
+
 app.use("/admin", institutionRoutes);
+app.use("/admin", superAdminRoutes);
 app.use("/admin", shiftRoutes);
 app.use("/admin", reportRoutes);
 app.use("/admin", adminRoutes);
