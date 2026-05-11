@@ -5,7 +5,6 @@ import { authorizeSuperAdmin } from "../middleware/authorizeSuperAdmin.js";
 import {
   createBranch,
   getBranches,
-  // getInstitution,
   updateInstitution, getInstitutionProfile,
   getDepartmentsOrUnits, updateBranch, reactivateBranch, deactivateBranch,
   assignUserToBranch,
