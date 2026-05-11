@@ -22,52 +22,65 @@
 //   next();
 // };
 
+// 🔥 UPDATED authorizeAdmin
+// Supports:
+// - super_admin
+// - admin
+// - institution owner
+
 export const authorizeAdmin = (
   req,
   res,
   next
 ) => {
-  console.log("DEBUG req.user:", req.user);
+  console.log(
+    "DEBUG req.user:",
+    req.user
+  );
 
   if (!req.user) {
     return res.status(401).json({
+      success: false,
       message: "Unauthorized",
     });
   }
 
-  const allowedRoles = [
-    "admin",
-    "super_admin",
-  ];
+  /* ================= ROLES ================= */
 
-  // Normalize roles
   const userRoles = Array.isArray(
     req.user.role
   )
     ? req.user.role
     : [req.user.role];
 
+  const isSuperAdmin =
+    userRoles.includes(
+      "super_admin"
+    );
+
+  const isAdmin =
+    userRoles.includes("admin");
+
+  const isInstitutionOwner =
+    req.user
+      .isInstitutionOwner === true;
+
   console.log(
     "DEBUG userRoles:",
     userRoles
   );
 
-  const hasRoleAccess =
-    userRoles.some((role) =>
-      allowedRoles.includes(role)
-    );
-
-  // 🔥 NEW OWNER SUPPORT
-  const isOwner =
-    req.user.isInstitutionOwner === true;
-
   console.log(
-    "DEBUG isInstitutionOwner:",
-    isOwner
+    "DEBUG owner:",
+    isInstitutionOwner
   );
 
+  /* ================= ACCESS ================= */
+
   const hasAccess =
-    hasRoleAccess || isOwner;
+    isSuperAdmin ||
+    isAdmin ||
+    isInstitutionOwner;
 
   console.log(
     "DEBUG hasAccess:",
@@ -76,6 +89,7 @@ export const authorizeAdmin = (
 
   if (!hasAccess) {
     return res.status(403).json({
+      success: false,
       message:
         "Admin, super admin, or institution owner access required",
     });
