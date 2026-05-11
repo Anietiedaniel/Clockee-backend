@@ -62,5 +62,5 @@ export const authorizeAdmin = (
       "authorizeAdmin passed",
   });
 
-  // next(); // 🔥 Re-enable after testing
+  next(); // 🔥 Re-enable after testing
 };

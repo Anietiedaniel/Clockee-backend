@@ -149,5 +149,5 @@ export const authorizeSuperAdmin = (
       "authorizeSuperAdmin passed",
   });
 
-  // next(); // 🔥 Re-enable after testing
+  next(); // 🔥 Re-enable after testing
 };
