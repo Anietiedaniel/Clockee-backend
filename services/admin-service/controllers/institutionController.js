@@ -316,88 +316,269 @@ export const createBranch = async (req, res) => {
 
 
 // both admin and supper admin can do it
+// export const getBranches = async (req, res) => {
+//   try {
+//     const {
+//       role,
+//       institutionId: adminInstitutionId,
+//       userId,
+//     } = req.user;
+
+//     const { institutionId: targetInstitutionId } = req.query;
+
+//     /* ================= ROLE CHECK ================= */
+
+//     const roles = Array.isArray(role) ? role : [role];
+
+//     const isSuperAdmin = roles.includes("super_admin");
+//     const isAdmin = roles.includes("admin");
+
+//     if (!isSuperAdmin && !isAdmin) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Not authorized",
+//       });
+//     }
+
+//     /* ================= DETERMINE INSTITUTION ================= */
+
+//     const institutionId = isSuperAdmin
+//       ? targetInstitutionId
+//       : adminInstitutionId;
+
+//     if (!institutionId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Institution ID is required",
+//       });
+//     }
+
+//     /* ================= FETCH INSTITUTION + OWNER ================= */
+
+//     const institution = await Institution.findById(institutionId)
+//       .populate({
+//         path: "owner",
+//         select: "_id name email phone role",
+//       })
+//       .select("owner name");
+
+//     if (!institution) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Institution not found",
+//       });
+//     }
+
+//     /* ================= OWNER CHECK ================= */
+
+//     if (!isSuperAdmin) {
+//       if (!institution.owner) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Institution has no owner assigned",
+//         });
+//       }
+
+//       if (institution.owner._id.toString() !== userId.toString()) {
+//         return res.status(403).json({
+//           success: false,
+//           message:
+//             "Only the institution owner or super admin can access branches",
+//         });
+//       }
+//     }
+
+//     /* ================= CHECK FEATURE ================= */
+
+//     const settings = await InstitutionSetting.findOne({
+//       institutionId,
+//     });
+
+//     if (!settings?.useBranches) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Branches not enabled for this institution",
+//       });
+//     }
+
+//     /* ================= FETCH BRANCHES ================= */
+
+//     const branches = await Branch.find({
+//       institutionId,
+//       isActive: true,
+//     })
+//       .select("name address location radiusMeters")
+//       .sort({ createdAt: -1 });
+
+//     /* ================= RESPONSE ================= */
+
+//     return res.status(200).json({
+//       success: true,
+//       institution: {
+//         id: institution._id,
+//         name: institution.name,
+//       },
+//       owner: institution.owner
+//         ? {
+//             id: institution.owner._id,
+//             name: institution.owner.name,
+//             email: institution.owner.email,
+//             phone: institution.owner.phone,
+//             role: institution.owner.role,
+//           }
+//         : null,
+//       count: branches.length,
+//       data: branches,
+//     });
+
+//   } catch (err) {
+//     console.error("Get branches error:", err.message);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch branches",
+//     });
+//   }
+// };
+
 export const getBranches = async (req, res) => {
   try {
     const {
       role,
       institutionId: adminInstitutionId,
       userId,
+      isInstitutionOwner,
     } = req.user;
 
-    const { institutionId: targetInstitutionId } = req.query;
+    const { institutionId: targetInstitutionId } =
+      req.query;
 
     /* ================= ROLE CHECK ================= */
 
-    const roles = Array.isArray(role) ? role : [role];
+    const roles = Array.isArray(role)
+      ? role
+      : [role];
 
-    const isSuperAdmin = roles.includes("super_admin");
-    const isAdmin = roles.includes("admin");
+    const isSuperAdmin =
+      roles.includes("super_admin");
 
-    if (!isSuperAdmin && !isAdmin) {
+    const isAdmin =
+      roles.includes("admin");
+
+    /* =====================================================
+       ACCESS POLICY:
+       super_admin => any institution
+       admin => own institution
+       owner => own institution
+    ===================================================== */
+
+    if (
+      !isSuperAdmin &&
+      !isAdmin &&
+      !isInstitutionOwner
+    ) {
       return res.status(403).json({
         success: false,
-        message: "Not authorized",
+        message:
+          "Super admin, admin, or institution owner access required",
       });
     }
 
     /* ================= DETERMINE INSTITUTION ================= */
 
-    const institutionId = isSuperAdmin
-      ? targetInstitutionId
-      : adminInstitutionId;
+    let institutionId = null;
+
+    // Super admin can target any institution
+    if (isSuperAdmin) {
+      institutionId =
+        targetInstitutionId ||
+        adminInstitutionId;
+    } else {
+      // Admin/Owner always restricted to own institution
+      institutionId =
+        adminInstitutionId;
+    }
 
     if (!institutionId) {
       return res.status(400).json({
         success: false,
-        message: "Institution ID is required",
+        message:
+          "Institution ID is required",
       });
     }
 
-    /* ================= FETCH INSTITUTION + OWNER ================= */
+    /* ================= FETCH INSTITUTION ================= */
 
-    const institution = await Institution.findById(institutionId)
-      .populate({
-        path: "owner",
-        select: "_id name email phone role",
-      })
-      .select("owner name");
+    const institution =
+      await Institution.findById(
+        institutionId
+      )
+        .populate({
+          path: "owner",
+          select:
+            "_id name email phone role",
+        })
+        .select("owner name");
 
     if (!institution) {
       return res.status(404).json({
         success: false,
-        message: "Institution not found",
+        message:
+          "Institution not found",
       });
     }
 
-    /* ================= OWNER CHECK ================= */
+    /* =====================================================
+       IMPORTANT FIX:
+       ADMIN SHOULD BE ALLOWED
+       Only non-admin/non-owner users blocked
+    ===================================================== */
 
     if (!isSuperAdmin) {
-      if (!institution.owner) {
-        return res.status(400).json({
-          success: false,
-          message: "Institution has no owner assigned",
-        });
-      }
+      // If institution owner => allowed
+      // If admin => allowed
+      // Staff/student => blocked already above
 
-      if (institution.owner._id.toString() !== userId.toString()) {
+      const actualOwnerId =
+        institution.owner?._id?.toString();
+
+      const currentUserId =
+        userId.toString();
+
+      const userOwnsInstitution =
+        actualOwnerId === currentUserId;
+
+      // If not owner and not admin => deny
+      if (!userOwnsInstitution && !isAdmin) {
         return res.status(403).json({
           success: false,
           message:
-            "Only the institution owner or super admin can access branches",
+            "Only institution owner, admin, or super admin can access branches",
         });
       }
     }
 
-    /* ================= CHECK FEATURE ================= */
+    /* ================= SETTINGS CHECK ================= */
 
-    const settings = await InstitutionSetting.findOne({
-      institutionId,
-    });
+    const settings =
+      await InstitutionSetting.findOne({
+        institutionId,
+        isActive: true,
+      });
 
-    if (!settings?.useBranches) {
+    if (!settings) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Institution settings not found",
+      });
+    }
+
+    if (!settings.useBranches) {
       return res.status(400).json({
         success: false,
-        message: "Branches not enabled for this institution",
+        message:
+          "Branches not enabled for this institution",
       });
     }
 
@@ -407,40 +588,61 @@ export const getBranches = async (req, res) => {
       institutionId,
       isActive: true,
     })
-      .select("name address location radiusMeters")
-      .sort({ createdAt: -1 });
+      .select(
+        "name address location radiusMeters createdAt"
+      )
+      .sort({
+        createdAt: -1,
+      });
 
     /* ================= RESPONSE ================= */
 
     return res.status(200).json({
       success: true,
+
       institution: {
         id: institution._id,
         name: institution.name,
       },
+
       owner: institution.owner
         ? {
             id: institution.owner._id,
             name: institution.owner.name,
-            email: institution.owner.email,
-            phone: institution.owner.phone,
-            role: institution.owner.role,
+            email:
+              institution.owner.email,
+            phone:
+              institution.owner.phone,
+            role:
+              institution.owner.role,
           }
         : null,
+
+      accessControl: {
+        requestedBy: userId,
+        isSuperAdmin,
+        isAdmin,
+        isInstitutionOwner,
+      },
+
       count: branches.length,
+
       data: branches,
     });
-
   } catch (err) {
-    console.error("Get branches error:", err.message);
+    console.error(
+      "Get branches error:",
+      err
+    );
 
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch branches",
+      message:
+        err.message ||
+        "Failed to fetch branches",
     });
   }
 };
-
 
 
 
