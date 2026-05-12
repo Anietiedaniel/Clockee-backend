@@ -110,6 +110,17 @@ expectedWorkHours: {
       default: false,
     },
 
+    /* ================= HOLIDAY POLICY ================= */
+
+    allowHolidayClocking: {
+      type: Boolean,
+      default: false,
+    },
+    
+    holidayAppliesToBranches: {
+        type: Boolean,
+        default: true,
+      },
     /* ================= TIMEZONE ================= */
 
     timezone: {

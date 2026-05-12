@@ -7,11 +7,13 @@ export { default as Institution } from "./models/institutionModel.js";
 export { default as InviteToken } from "./models/inviteToken.js";
 export { default as TokenBlacklist } from "./models/tokenBlackList.js";
 export { default as Visitor } from "./models/visitorModel.js";
+export { default as Holiday } from "./models/holiday.js";
 export { default as InstitutionSetting } from "./models/institutionSetting.js";
 export { checkInstitutionActive} from "./middleware/checkInstitutionActive.js"
 // UTILS
 export * from "./utils/codeHelper.js";
 export * from "./utils/passwordHelper.js";
+export * from "./utils/attendancePolicyCheck.js";
 export * from "./db/connect.js";
 
 

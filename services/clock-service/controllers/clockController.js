@@ -9,7 +9,7 @@ import {
 
 } from "../utils/clock.helpers.js";
 
-
+import { validateAttendanceDay } from "@clockee/shared";
 
 
 // export const clockAttendance = async (req, res) => {
@@ -840,28 +840,48 @@ export const clockAttendance = async (req, res) => {
 
     /* ================= DATE ================= */
 
-    const now = moment().tz(settings.timezone);
+const now = moment().tz(settings.timezone);
 
-    const date = now
-      .clone()
-      .startOf("day")
-      .toDate();
+const date = now
+  .clone()
+  .startOf("day")
+  .toDate();
 
-    /* ================= OFFLINE SAFE SYNC ================= */
 
-    if (syncId) {
-      const existingSync = await AttendanceLog.findOne({
-        syncId,
-      });
 
-      if (existingSync) {
-        return res.status(200).json({
-          success: true,
-          message: "Already synced",
-          data: existingSync,
-        });
-      }
-    }
+const policyCheck =
+  await validateAttendanceDay({
+    now,
+    institutionId: user.institutionId,
+    branchId: settings.useBranches
+      ? user.branchId || null
+      : null,
+    settings,
+  });
+
+if (!policyCheck.allowed) {
+  return res.status(403).json({
+    success: false,
+    reason: policyCheck.reason,
+    message: policyCheck.message,
+  });
+}
+
+/* ================= OFFLINE SAFE SYNC ================= */
+
+if (syncId) {
+  const existingSync = await AttendanceLog.findOne({
+    syncId,
+  });
+
+  if (existingSync) {
+    return res.status(200).json({
+      success: true,
+      message: "Already synced",
+      data: existingSync,
+    });
+  }
+}
 
     let attendance;
 
@@ -1601,529 +1621,555 @@ export const getAttendanceHistory = async (req, res) => {
 // export const syncOfflineLogs = async (req, res) => {
 //   try {
 //     const { offlineLogs } = req.body;
-//     const { _id: userId, institutionId, sessionId } = req.user;
 
-//     if (!offlineLogs || !Array.isArray(offlineLogs) || offlineLogs.length === 0) {
-//       return res.status(400).json({ message: "No offline logs provided." });
-//     }
+//     /* ================= AUTH USER ================= */
 
-//     // ===============================
-//     // 🔐 SESSION VALIDATION (IMPORTANT)
-//     // ===============================
-//     const user = await User.findById(userId);
+//     const userId =
+//       req.user.userId ||
+//       req.user.id ||
+//       req.user._id;
 
-//     if (!user || user.activeSession?.sessionId !== sessionId) {
-//       return res.status(401).json({
+//     const institutionId = req.user.institutionId;
+//     const sessionId = req.user.sessionId;
+
+//     if (
+//       !offlineLogs ||
+//       !Array.isArray(offlineLogs) ||
+//       offlineLogs.length === 0
+//     ) {
+//       return res.status(400).json({
 //         success: false,
-//         message: "Session expired or logged in on another device",
+//         message: "No offline logs provided.",
 //       });
 //     }
 
+//     /* ================= USER VALIDATION ================= */
+
+//     const user = await User.findById(userId);
+
+//     if (!user || !user.isActive) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found or inactive",
+//       });
+//     }
+
+//     /* ================= SESSION CHECK ================= */
+
+//     if (
+//       user.activeSession?.sessionId &&
+//       sessionId &&
+//       user.activeSession.sessionId !== sessionId
+//     ) {
+//       return res.status(401).json({
+//         success: false,
+//         message:
+//           "Session expired or logged in on another device",
+//       });
+//     }
+
+//     /* ================= SETTINGS ================= */
+
+//     const settingsDoc =
+//       await InstitutionSetting.findOne({
+//         institutionId,
+//         isActive: true,
+//       });
+
+//     const settings = {
+//       timezone: "Africa/Lagos",
+//       workStartTime: "08:00",
+//       workEndTime: "17:00",
+//       expectedWorkHours: 8,
+//       gracePeriodMinutes: 20,
+//       clockingWindow: {
+//         earlyMinutes: 20,
+//         lateMinutes: 90,
+//       },
+//       ...(settingsDoc
+//         ? settingsDoc.toObject()
+//         : {}),
+//     };
+
 //     const results = [];
 
+//     /* =========================================================
+//        IMPORTANT FIX:
+//        Every query below MUST include:
+//        userId + institutionId
+//        This ensures ONLY this user's logs are checked.
+//     ========================================================= */
+
 //     for (const log of offlineLogs) {
-//       const { branchId, gps, actionType, mode, timestamp, qrCode } = log;
-
 //       try {
-//         const now = moment(timestamp);
-//         const date = now.clone().startOf("day").toDate();
-
-//         /* ===============================
-//            SETTINGS
-//         =============================== */
-//         const settingsDoc = await InstitutionSetting.findOne({
-//           institutionId,
-//           isActive: true,
-//         });
-
-//         const settings = {
-//           timezone: "Africa/Lagos",
-//           workStartTime: "08:00",
-//           workEndTime: "17:00",
-//           expectedWorkHours: 8,
-//           ...(settingsDoc ? settingsDoc.toObject() : {}),
-//         };
-
-//         /* ===============================
-//            DUPLICATE CHECK
-//         =============================== */
-//         const existing = await AttendanceLog.findOne({
-//           userId,
+//         const {
+//           branchId = user.branchId || null,
+//           gps,
 //           actionType,
-//           date,
-//         });
+//           timestamp,
+//           syncId,
+//           offlineCreatedAt,
+//           deviceInfo,
+//         } = log;
+
+//         /* ================= BASIC VALIDATION ================= */
+
+//         if (
+//           !timestamp ||
+//           !actionType ||
+//           !["clock-in", "clock-out"].includes(
+//             actionType
+//           )
+//         ) {
+//           results.push({
+//             ...log,
+//             syncStatus: "rejected_on_sync",
+//             reason:
+//               "Invalid timestamp or actionType",
+//           });
+//           continue;
+//         }
+
+//         const now = moment(timestamp).tz(
+//           settings.timezone
+//         );
+
+//         if (!now.isValid()) {
+//           results.push({
+//             ...log,
+//             syncStatus: "rejected_on_sync",
+//             reason: "Invalid timestamp",
+//           });
+//           continue;
+//         }
+      
+//                 /* ================= DATE ================= */
+
+//         const date = now
+//           .clone()
+//           .startOf("day")
+//           .toDate();
+
+//         /* =====================================================
+//            🔥 NEW: WORKING DAY + HOLIDAY POLICY CHECK
+//            Prevents syncing:
+//            - Weekend / non-working day logs
+//            - Public holiday logs
+//            - Unless institution allows holiday clocking
+//         ===================================================== */
+
+//         const policyCheck =
+//           await validateAttendanceDay({
+//             now,
+//             institutionId,
+//             branchId,
+//             settings,
+//           });
+
+//         if (!policyCheck.allowed) {
+//           results.push({
+//             ...log,
+//             syncStatus: "rejected_on_sync",
+//             reason: policyCheck.reason,
+//             message: policyCheck.message,
+//           });
+
+//           continue;
+//         }
+
+//         /* ================= GPS NORMALIZATION ================= */
+
+//         let normalizedGps = null;
+
+//         if (
+//           gps &&
+//           typeof gps.lat === "number" &&
+//           typeof gps.lng === "number"
+//         ) {
+//           normalizedGps = {
+//             type: "Point",
+//             coordinates: [gps.lng, gps.lat],
+//           };
+//         }
+    
+
+//         /* ================= SYNC ID DEDUPE ================= */
+
+//         if (syncId) {
+//           const existingSync =
+//             await AttendanceLog.findOne({
+//               userId,
+//               institutionId,
+//               syncId,
+//             });
+
+//           if (existingSync) {
+//             results.push({
+//               ...log,
+//               syncStatus: "already_synced",
+//               _id: existingSync._id,
+//               actionType:
+//                 existingSync.actionType,
+//             });
+//             continue;
+//           }
+//         }
+
+//         /* ================= DAILY DEDUPE ================= */
+
+//         const existing =
+//           await AttendanceLog.findOne({
+//             userId,
+//             institutionId,
+//             actionType,
+//             date,
+//             isActive: true,
+//           });
 
 //         if (existing) {
 //           results.push({
 //             ...log,
-//             syncStatus: "rejected_on_sync",
-//             reason: "Already exists for this day",
+//             syncStatus: "already_exists",
+//             _id: existing._id,
+//             actionType:
+//               existing.actionType,
+//             reason:
+//               actionType === "clock-in"
+//                 ? "Already clocked in"
+//                 : "Already clocked out",
 //           });
 //           continue;
 //         }
 
-//         /* ===============================
-//            CLOCK-IN
-//         =============================== */
+//         /* ================= CLOCK-IN ================= */
+
 //         if (actionType === "clock-in") {
-//           const [h, m] = settings.workStartTime.split(":").map(Number);
+//           const [h, m] =
+//             settings.workStartTime
+//               .split(":")
+//               .map(Number);
 
-//           const expectedStart = moment(timestamp).set({
-//             hour: h,
-//             minute: m,
-//             second: 0,
-//           });
+//           const expectedStart = now
+//             .clone()
+//             .set({
+//               hour: h,
+//               minute: m,
+//               second: 0,
+//               millisecond: 0,
+//             });
 
-//           const diffMinutes = now.diff(expectedStart, "minutes");
+//           const diffMinutes = now.diff(
+//             expectedStart,
+//             "minutes"
+//           );
 
 //           let clockInStatus = "on-time";
 
-//           if (diffMinutes < -20) clockInStatus = "too-early";
-//           else if (diffMinutes < 0) clockInStatus = "early";
-//           else if (diffMinutes <= 20) clockInStatus = "on-time";
-//           else if (diffMinutes <= 90) clockInStatus = "late";
-//           else clockInStatus = "very-late";
+//           if (
+//             diffMinutes <
+//             -settings.clockingWindow
+//               .earlyMinutes
+//           ) {
+//             clockInStatus = "too-early";
+//           } else if (diffMinutes < 0) {
+//             clockInStatus = "early";
+//           } else if (
+//             diffMinutes <=
+//             settings.gracePeriodMinutes
+//           ) {
+//             clockInStatus = "on-time";
+//           } else if (
+//             diffMinutes <=
+//             settings.clockingWindow
+//               .lateMinutes
+//           ) {
+//             clockInStatus = "late";
+//           } else {
+//             clockInStatus = "very-late";
+//           }
 
-//           const saved = await AttendanceLog.create({
-//             userId,
-//             institutionId,
-//             branchId,
-//             actionType,
-//             mode: mode || "offline",
-//             gps,
-//             timestamp: new Date(timestamp),
-//             date,
+//           const saved =
+//             await AttendanceLog.create({
+//               userId,
+//               institutionId,
+//               branchId,
 
-//             clockInStatus,
-//             minutesLate: diffMinutes > 0 ? diffMinutes : 0,
+//               syncId:
+//                 syncId || undefined,
 
+//               offlineCreatedAt:
+//                 offlineCreatedAt ||
+//                 new Date(timestamp),
+
+//               serverReceivedAt:
+//                 new Date(),
+
+//               actionType: "clock-in",
+//               mode: "offline",
+
+//               gps: normalizedGps,
+
+//               timestamp:
+//                 now.toDate(),
+
+//               date,
+
+//               status: "present",
+
+//               clockInStatus,
+
+//               minutesLate:
+//                 diffMinutes > 0
+//                   ? diffMinutes
+//                   : 0,
+
+//               syncStatus: "synced",
+
+//               validationResult:
+//                 "accepted",
+
+//               deviceInfo:
+//                 deviceInfo ||
+//                 "unknown-device",
+//             });
+
+//           results.push({
+//             ...log,
 //             syncStatus: "synced",
-//             serverReceivedAt: new Date(),
+//             _id: saved._id,
+//             actionType: "clock-in",
+//             clockInStatus,
 //           });
 
-//           results.push({ ...log, syncStatus: "synced", _id: saved._id });
 //           continue;
 //         }
 
-//         /* ===============================
-//            CLOCK-OUT
-//         =============================== */
+//         /* ================= CLOCK-OUT ================= */
+
 //         if (actionType === "clock-out") {
-//           const lastClockIn = await AttendanceLog.findOne({
-//             userId,
-//             actionType: "clock-in",
-//             date,
-//           });
+//           const lastClockIn =
+//             await AttendanceLog.findOne({
+//               userId,
+//               institutionId,
+//               actionType:
+//                 "clock-in",
+//               date,
+//               isActive: true,
+//             }).sort({
+//               timestamp: -1,
+//             });
 
 //           if (!lastClockIn) {
 //             results.push({
 //               ...log,
-//               syncStatus: "rejected_on_sync",
-//               reason: "No clock-in found",
+//               syncStatus:
+//                 "rejected_on_sync",
+//               reason:
+//                 "No clock-in found",
 //             });
 //             continue;
 //           }
 
-//           const workDurationMinutes = now.diff(
-//             moment(lastClockIn.timestamp),
-//             "minutes"
-//           );
+//           const existingClockOut =
+//             await AttendanceLog.findOne({
+//               userId,
+//               institutionId,
+//               actionType:
+//                 "clock-out",
+//               date,
+//               isActive: true,
+//             });
 
-//           let clockOutStatus = "completed";
-
-//           const [h, m] = settings.workEndTime.split(":").map(Number);
-
-//           const expectedEnd = moment(timestamp).set({
-//             hour: h,
-//             minute: m,
-//           });
-
-//           if (now.isBefore(expectedEnd)) clockOutStatus = "early_exit";
-//           else if (now.isAfter(expectedEnd)) clockOutStatus = "overtime";
-
-//           const expectedMinutes = (settings.expectedWorkHours || 8) * 60;
-
-//           let productivityStatus = "normal";
-//           if (workDurationMinutes < expectedMinutes * 0.5) {
-//             productivityStatus = "underworked";
+//           if (existingClockOut) {
+//             results.push({
+//               ...log,
+//               syncStatus:
+//                 "already_exists",
+//               _id:
+//                 existingClockOut._id,
+//               reason:
+//                 "Already clocked out",
+//             });
+//             continue;
 //           }
 
-//           const saved = await AttendanceLog.create({
-//             userId,
-//             institutionId,
-//             branchId,
-//             actionType,
-//             mode: mode || "offline",
-//             gps,
-//             timestamp: new Date(timestamp),
-//             date,
+//           const workDurationMinutes =
+//             now.diff(
+//               moment(
+//                 lastClockIn.timestamp
+//               ),
+//               "minutes"
+//             );
 
+//           let clockOutStatus =
+//             "completed";
+
+//           const [h, m] =
+//             settings.workEndTime
+//               .split(":")
+//               .map(Number);
+
+//           const expectedEnd = now
+//             .clone()
+//             .set({
+//               hour: h,
+//               minute: m,
+//               second: 0,
+//               millisecond: 0,
+//             });
+
+//           if (
+//             now.isBefore(
+//               expectedEnd
+//             )
+//           ) {
+//             clockOutStatus =
+//               "early_exit";
+//           } else if (
+//             now.isAfter(
+//               expectedEnd
+//             )
+//           ) {
+//             clockOutStatus =
+//               "overtime";
+//           }
+
+//           const saved =
+//             await AttendanceLog.create({
+//               userId,
+//               institutionId,
+//               branchId,
+
+//               syncId:
+//                 syncId || undefined,
+
+//               offlineCreatedAt:
+//                 offlineCreatedAt ||
+//                 new Date(timestamp),
+
+//               serverReceivedAt:
+//                 new Date(),
+
+//               actionType: "clock-out",
+//               mode: "offline",
+
+//               gps: normalizedGps,
+
+//               timestamp:
+//                 now.toDate(),
+
+//               date,
+
+//               clockOutStatus,
+
+//               workDurationMinutes,
+
+//               syncStatus: "synced",
+
+//               validationResult:
+//                 "accepted",
+
+//               deviceInfo:
+//                 deviceInfo ||
+//                 "unknown-device",
+//             });
+
+//           results.push({
+//             ...log,
+//             syncStatus: "synced",
+//             _id: saved._id,
+//             actionType: "clock-out",
 //             clockOutStatus,
 //             workDurationMinutes,
-//             productivityStatus,
+//           });
+//         }
+//       } catch (innerErr) {
+//         console.error(
+//           "Sync error:",
+//           innerErr
+//         );
 
-//             syncStatus: "synced",
-//             serverReceivedAt: new Date(),
+//         if (
+//           innerErr.code === 11000
+//         ) {
+//           results.push({
+//             ...log,
+//             syncStatus:
+//               "already_exists",
+//             reason:
+//               "Duplicate log",
 //           });
 
-//           results.push({ ...log, syncStatus: "synced", _id: saved._id });
+//           continue;
 //         }
-
-//       } catch (innerErr) {
-//         console.error("Sync error:", innerErr);
 
 //         results.push({
 //           ...log,
-//           syncStatus: "rejected_on_sync",
-//           reason: "Server error",
+//           syncStatus:
+//             "rejected_on_sync",
+//           reason:
+//             innerErr.message ||
+//             "Server error",
 //         });
 //       }
 //     }
 
-//     return res.status(200).json({
-//       message: "Offline logs synchronized.",
-//       summary: {
-//         total: offlineLogs.length,
-//         synced: results.filter(r => r.syncStatus === "synced").length,
-//         rejected: results.filter(r => r.syncStatus === "rejected_on_sync").length,
-//       },
-//       results,
-//     });
-
-//   } catch (err) {
-//     console.error("Sync error:", err);
-//     return res.status(500).json({ message: "Server error during sync." });
-//   }
-// };
-
-
-
-
-// export const getRealTimeStatus = async (req, res) => {
-//   try {
-//     const institutionId = req.user.institutionId;
-//     const { branchId } = req.query;
-
-//     const startOfDay = new Date();
-//     startOfDay.setHours(0, 0, 0, 0);
-
-//     const endOfDay = new Date();
-//     endOfDay.setHours(23, 59, 59, 999);
-
-//     /* ================= USERS ================= */
-
-//     const userFilter = { institutionId, isActive: true };
-//     if (branchId) userFilter.branchId = branchId;
-
-//     const users = await User.find(userFilter)
-//       .select("name role studentOrStaffId departmentOrUnit")
-//       .lean();
-
-//     /* ================= LOGS ================= */
-
-//     const logs = await AttendanceLog.find({
-//       institutionId,
-//       timestamp: { $gte: startOfDay, $lte: endOfDay },
-//     }).lean();
-
-//     /* ================= MAP ================= */
-
-//     const clockInMap = new Map();
-//     const clockOutMap = new Map();
-
-//     logs.forEach(log => {
-//       const userKey = String(log.userId);
-
-//       if (log.actionType === "clock-in") {
-//         clockInMap.set(userKey, log);
-//       }
-
-//       if (log.actionType === "clock-out") {
-//         clockOutMap.set(userKey, log);
-//       }
-//     });
-
-//     /* ================= GROUPS ================= */
-
-//     const onTime = [];
-//     const late = [];
-//     const veryLate = [];
-//     const early = [];
-//     const absent = [];
-//     const notClockedOut = [];
-
-//     for (const user of users) {
-//       const uId = String(user._id);
-
-//       const clockIn = clockInMap.get(uId);
-//       const clockOut = clockOutMap.get(uId);
-
-//       if (!clockIn) {
-//         absent.push(user);
-//         continue;
-//       }
-
-//       const enriched = {
-//         ...user,
-//         clockInStatus: clockIn.clockInStatus,
-//         clockOutStatus: clockOut?.clockOutStatus || null,
-//         clockInTime: clockIn.timestamp,
-//         clockOutTime: clockOut?.timestamp || null,
-//       };
-
-//       // GROUPING
-//       switch (clockIn.clockInStatus) {
-//         case "on-time":
-//           onTime.push(enriched);
-//           break;
-//         case "late":
-//           late.push(enriched);
-//           break;
-//         case "very-late":
-//           veryLate.push(enriched);
-//           break;
-//         case "early":
-//           early.push(enriched);
-//           break;
-//         default:
-//           onTime.push(enriched);
-//       }
-
-//       if (clockIn && !clockOut) {
-//         notClockedOut.push(enriched);
-//       }
-//     }
-
-//     /* ================= RESPONSE ================= */
-
-//     return res.status(200).json({
-//       success: true,
-//       data: {
-//         summary: {
-//           total: users.length,
-//           onTime: onTime.length,
-//           late: late.length,
-//           veryLate: veryLate.length,
-//           early: early.length,
-//           absent: absent.length,
-//           notClockedOut: notClockedOut.length,
-//         },
-//         details: {
-//           onTime,
-//           late,
-//           veryLate,
-//           early,
-//           absent,
-//           notClockedOut,
-//         },
-//       },
-//     });
-
-//   } catch (error) {
-//     console.error("Realtime status error:", error);
-
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch real-time status.",
-//     });
-//   }
-// };
-
-
-
-
-// export const getDashboardSummary = async (req, res) => {
-//   try {
-//     const institutionId = req.user.institutionId;
-
-//     const startOfDay = new Date();
-//     startOfDay.setHours(0, 0, 0, 0);
-
-//     const endOfDay = new Date();
-//     endOfDay.setHours(23, 59, 59, 999);
-
-//     /* ================= USERS ================= */
-
-//     const totalUsers = await User.countDocuments({
-//       institutionId,
-//       isActive: true,
-//     });
-
-//     const pendingApprovals = await User.countDocuments({
-//       institutionId,
-//       role: "pending",
-//     });
-
-//     /* ================= TODAY CLOCK-IN ================= */
-
-//     const todaysClockIns = await AttendanceLog.find({
-//       institutionId,
-//       actionType: "clock-in",
-//       timestamp: { $gte: startOfDay, $lte: endOfDay },
-//     }).select("clockInStatus branchId mode qrType");
-
-//     const onTime = todaysClockIns.filter(l => l.clockInStatus === "on-time").length;
-//     const early = todaysClockIns.filter(l => l.clockInStatus === "early").length;
-//     const late = todaysClockIns.filter(l => l.clockInStatus === "late").length;
-//     const veryLate = todaysClockIns.filter(l => l.clockInStatus === "very-late").length;
-
-//     const present = todaysClockIns.length;
-//     const absent = totalUsers - present;
-
-//     /* ================= TODAY CLOCK-OUT ================= */
-
-//     const todaysClockOuts = await AttendanceLog.find({
-//       institutionId,
-//       actionType: "clock-out",
-//       timestamp: { $gte: startOfDay, $lte: endOfDay },
-//     }).select("clockOutStatus");
-
-//     const completed = todaysClockOuts.filter(l => l.clockOutStatus === "completed").length;
-//     const earlyExit = todaysClockOuts.filter(l => l.clockOutStatus === "early_exit").length;
-//     const overtime = todaysClockOuts.filter(l => l.clockOutStatus === "overtime").length;
-//     const underWork = todaysClockOuts.filter(l => l.clockOutStatus === "under_work").length;
-
-//     /* ================= QR + ADMIN ================= */
-
-//     const qrStatic = todaysClockIns.filter(l => l.qrType === "static").length;
-//     const qrDynamic = todaysClockIns.filter(l => l.qrType === "dynamic").length;
-//     const adminOverrides = todaysClockIns.filter(l => l.mode === "admin_override").length;
-
-//     /* ================= WEEKLY TREND ================= */
-
-//     const today = new Date();
-//     const weeklyTrend = [];
-
-//     for (let i = 6; i >= 0; i--) {
-//       const dayStart = new Date(today);
-//       dayStart.setDate(today.getDate() - i);
-//       dayStart.setHours(0, 0, 0, 0);
-
-//       const dayEnd = new Date(dayStart);
-//       dayEnd.setHours(23, 59, 59, 999);
-
-//       const dayLogs = await AttendanceLog.find({
-//         institutionId,
-//         actionType: "clock-in",
-//         timestamp: { $gte: dayStart, $lte: dayEnd },
-//       }).select("mode qrType");
-
-//       const attendanceCount = dayLogs.length;
-//       const rate = totalUsers
-//         ? ((attendanceCount / totalUsers) * 100).toFixed(1)
-//         : 0;
-
-//       const dayQrStatic = dayLogs.filter(l => l.qrType === "static").length;
-//       const dayQrDynamic = dayLogs.filter(l => l.qrType === "dynamic").length;
-//       const dayAdminOverrides = dayLogs.filter(l => l.mode === "admin_override").length;
-
-//       weeklyTrend.push({
-//         date: dayStart.toISOString().split("T")[0],
-//         attendanceRate: Number(rate),
-//         qrStaticCount: dayQrStatic,
-//         qrDynamicCount: dayQrDynamic,
-//         adminOverrideCount: dayAdminOverrides,
-//       });
-//     }
-
-//     /* ================= TOP BRANCHES ================= */
-
-//     const topBranches = await AttendanceLog.aggregate([
-//       {
-//         $match: {
-//           institutionId,
-//           actionType: "clock-in",
-//           timestamp: { $gte: startOfDay, $lte: endOfDay },
-//         },
-//       },
-//       {
-//         $group: {
-//           _id: "$branchId",
-//           total: { $sum: 1 },
-//           qrStatic: {
-//             $sum: { $cond: [{ $eq: ["$qrType", "static"] }, 1, 0] },
-//           },
-//           qrDynamic: {
-//             $sum: { $cond: [{ $eq: ["$qrType", "dynamic"] }, 1, 0] },
-//           },
-//           adminOverrides: {
-//             $sum: { $cond: [{ $eq: ["$mode", "admin_override"] }, 1, 0] },
-//           },
-//         },
-//       },
-//       { $sort: { total: -1 } },
-//       { $limit: 5 },
-//       {
-//         $lookup: {
-//           from: "branches",
-//           localField: "_id",
-//           foreignField: "_id",
-//           as: "branch",
-//         },
-//       },
-//       { $unwind: "$branch" },
-//       {
-//         $project: {
-//           _id: 0,
-//           branchId: "$branch._id",
-//           branchName: "$branch.name",
-//           total: 1,
-//           qrStatic: 1,
-//           qrDynamic: 1,
-//           adminOverrides: 1,
-//         },
-//       },
-//     ]);
-
 //     /* ================= FINAL RESPONSE ================= */
 
-//     const summary = {
-//       todaySummary: {
-//         totalUsers,
-//         present,
-//         absent,
-
-//         // CLOCK-IN
-//         onTime,
-//         early,
-//         late,
-//         veryLate,
-
-//         // CLOCK-OUT
-//         completed,
-//         earlyExit,
-//         overtime,
-//         underWork,
-
-//         // SYSTEM
-//         qrStatic,
-//         qrDynamic,
-//         adminOverrides,
-//       },
-//       weeklyTrend,
-//       topBranches,
-//       pendingApprovals,
-//     };
-
 //     return res.status(200).json({
 //       success: true,
-//       data: summary,
-//     });
+//       message:
+//         "Offline logs synchronized.",
 
-//   } catch (error) {
-//     console.error("Dashboard summary error:", error);
+//       user: {
+//         userId,
+//         institutionId,
+//         branchId:
+//           user.branchId || null,
+//       },
+
+//       summary: {
+//         total:
+//           offlineLogs.length,
+
+//         synced: results.filter(
+//           (r) =>
+//             r.syncStatus ===
+//             "synced"
+//         ).length,
+
+//         alreadySynced:
+//           results.filter((r) =>
+//             [
+//               "already_synced",
+//               "already_exists",
+//             ].includes(
+//               r.syncStatus
+//             )
+//           ).length,
+
+//         rejected: results.filter(
+//           (r) =>
+//             r.syncStatus ===
+//             "rejected_on_sync"
+//         ).length,
+//       },
+
+//       results,
+//     });
+//   } catch (err) {
+//     console.error(
+//       "Sync error:",
+//       err
+//     );
 
 //     return res.status(500).json({
 //       success: false,
-//       message: "Failed to generate dashboard summary",
+//       message:
+//         "Server error during sync.",
 //     });
 //   }
 // };
-
-//  Replace multiple .find() with MongoDB aggregation pipeline (1 query instead of many)
-//  Add caching (Redis)
-//  Add monthly + department analytics
-
 
 export const syncOfflineLogs = async (req, res) => {
   try {
@@ -2250,10 +2296,39 @@ export const syncOfflineLogs = async (req, res) => {
           continue;
         }
 
+        /* ================= DATE ================= */
+
         const date = now
           .clone()
           .startOf("day")
           .toDate();
+
+        /* =====================================================
+           🔥 NEW: WORKING DAY + HOLIDAY POLICY CHECK
+           Prevents syncing:
+           - Weekend / non-working day logs
+           - Public holiday logs
+           - Unless institution allows holiday clocking
+        ===================================================== */
+
+        const policyCheck =
+          await validateAttendanceDay({
+            now,
+            institutionId,
+            branchId,
+            settings,
+          });
+
+        if (!policyCheck.allowed) {
+          results.push({
+            ...log,
+            syncStatus: "rejected_on_sync",
+            reason: policyCheck.reason,
+            message: policyCheck.message,
+          });
+
+          continue;
+        }
 
         /* ================= GPS NORMALIZATION ================= */
 
@@ -2559,6 +2634,8 @@ export const syncOfflineLogs = async (req, res) => {
             clockOutStatus,
             workDurationMinutes,
           });
+
+          continue;
         }
       } catch (innerErr) {
         console.error(
@@ -2647,8 +2724,6 @@ export const syncOfflineLogs = async (req, res) => {
     });
   }
 };
-
-
 
 export const getRealTimeStatus = async (req, res) => {
   try {
