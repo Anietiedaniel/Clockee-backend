@@ -1,9 +1,6 @@
 import { Holiday, Branch} from "@clockee/shared";
 
-/* =========================================================
-   CREATE HOLIDAY
-   POST /admin/holidays
-========================================================= */
+
 export const createHoliday = async (req, res) => {
   try {
     const {

@@ -58,14 +58,14 @@ router.get(
 router.patch(
   "/institution/branches/update/:id",
   protect,
-  authorizeSuperAdmin,
+  authorizeAdmin,
   updateBranch
 );
 
 router.patch(
   "/institution/branches/:institutionId/assign-user/:id",
   protect,
-  authorizeSuperAdmin,
+  authorizeAdmin,
   assignUserToBranch
 );
 
