@@ -1,4 +1,4 @@
-import{ Holiday, Branch } from "@clockee/shared";
+import { Holiday, Branch} from "@clockee/shared";
 
 /* =========================================================
    CREATE HOLIDAY
