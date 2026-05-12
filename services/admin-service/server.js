@@ -102,7 +102,7 @@ app.use("/admin", superAdminRoutes);
 app.use("/admin", shiftRoutes);
 app.use("/admin", reportRoutes);
 app.use("/admin", adminRoutes);
-// app.use("/admin", holidayRoutes);
+app.use("/admin", holidayRoutes);
 
   // 404 handler
   app.use((req, res) => {
