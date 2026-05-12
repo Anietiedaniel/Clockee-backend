@@ -76,6 +76,14 @@ router.post(
 );
 router.post("/institutions/:id/staff", protect, authorizeAdmin, adminCreateUser);
 
+router.post(
+  "/institutions/staff",
+  protect,
+  authorizeAdmin,
+  adminCreateUser
+);
+
+
 router.patch(
   "/users/:id/deactivate",
   protect,
