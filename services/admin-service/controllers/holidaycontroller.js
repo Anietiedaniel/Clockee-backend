@@ -216,7 +216,7 @@ export const getHolidays = async (req, res) => {
   }
 };
 
-
+// ================= UPDATE HOLIDAY =================
 export const updateHoliday = async (req, res) => {
   try {
     const {
