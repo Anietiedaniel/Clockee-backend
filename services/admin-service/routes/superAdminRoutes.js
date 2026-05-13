@@ -27,19 +27,19 @@ router.post(
   createInstitutionWithOwner
 );
 
-router.post("/create/:id/admin", authorizeSuperAdmin,  superCreateAdmin);
-router.get("/institutions",authorizeSuperAdmin, getAllInstitutions);
-router.patch("/institutions/:id/status",authorizeSuperAdmin, toggleInstitutionStatus);
-router.patch("/institutions/:id/admin", authorizeSuperAdmin,  assignInstitutionAdmin);
+router.post("/create/:id/admin",protect, authorizeSuperAdmin,  superCreateAdmin);
+router.get("/institutions",protect,authorizeSuperAdmin, getAllInstitutions);
+router.patch("/institutions/:id/status",protect,authorizeSuperAdmin, toggleInstitutionStatus);
+router.patch("/institutions/:id/admin", protect, authorizeSuperAdmin,  assignInstitutionAdmin);
 router.get("/users",protect,authorizeSuperAdmin,  getAllUsersPlatform);
 router.get("/admins",protect,authorizeSuperAdmin, getAllAdminsPlatform)
 router.patch(
-  "/users/:id/role",authorizeSuperAdmin,
+  "/users/:id/role",protect,authorizeSuperAdmin,
   updateUserRole
 );
-router.get("/onboard", authorizeSuperAdmin, adminOnboardStatus);
+router.get("/onboard", protect, authorizeSuperAdmin, adminOnboardStatus);
 router.get(
-  "/institution/owners",authorizeSuperAdmin, getAllInstitutionOwners
+  "/institution/owners",protect,authorizeSuperAdmin, getAllInstitutionOwners
 );
 
 export default router;
