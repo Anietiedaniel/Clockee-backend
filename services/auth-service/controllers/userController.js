@@ -217,7 +217,6 @@ export const getMyProfile = async (req, res) => {
   }
 };
 
-
 export const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword, confirmPassword } = req.body;
