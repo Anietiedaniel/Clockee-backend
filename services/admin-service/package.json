@@ -27,5 +27,6 @@
     "multer": "^2.0.2",
     "nodemailer": "^7.0.13",
     "qrcode": "^1.5.4"
-  }
+  },
+  "devDependencies": {}
 }
