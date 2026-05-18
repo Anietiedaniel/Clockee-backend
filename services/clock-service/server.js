@@ -3,6 +3,7 @@ import express from "express";
 import dotenv from "dotenv";
 import morgan from "morgan";
 import cors from "cors";
+// cSpell:disable-next-line
 import {connectDB} from "@clockee/shared";
 import { startAbsentMarkingJob } from "./jobs/absentMarksJob.js";
 import clockRoutes from "./routes/clockRoutes.js";
