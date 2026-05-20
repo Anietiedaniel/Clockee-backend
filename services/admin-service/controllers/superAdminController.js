@@ -3,68 +3,6 @@ import { Institution, User } from "@clockee/shared";
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 
-// only super admin can do this
-// old controller
-// export const createInstitution = async (req, res) => {
-//   try {
-//     const { role, userId: adminId  } = req.user;
-
-//     // Only platform admin can create institutions
-//     if (role !== "super_admin") {
-//       return res.status(403).json({
-//         message: "Only super admin can create institutions",
-//       });
-//     }
-
-//     const {
-//       name,
-//       type,
-//       address,
-//       email,
-//       phone,
-//       industry,
-//     } = req.body;
-
-//     // Required validation
-//     if (!name || !type) {
-//       return res.status(400).json({
-//         message: "Institution name and type are required",
-//       });
-//     }
-
-    
-//     const existing = await Institution.findOne({ email });
-//     if (existing) {
-//       return res.status(409).json({
-//         message: "Institution with this name already exists",
-//       });
-//     }
-
-//     const institution = await Institution.create({
-//       name: name.trim(),
-//       type,
-//       address,
-//       email,
-//       phone,
-//       createdBy: adminId,
-//       meta: {
-//         industry,
-//       },
-//     });
-
-//     res.status(201).json({
-//       success: true,
-//       message: "Institution created successfully",
-//       institution,
-//     });
-//   } catch (err) {
-//     console.error("Create institution error:", err);
-//     res.status(500).json({ message: "Failed to create institution",error: err.message });
-//   }
-// };
-
-
-
 export const createInstitutionWithOwner = async (req, res) => {
   console.log("🔥 ROUTE HIT");
 
@@ -351,10 +289,6 @@ export const superCreateAdmin = async (req, res) => {
 //     res.status(500).json({ message: "Server error" });
 //   }
 // };
-
-
-
-
 
 export const getAllInstitutions = async (req, res) => {
   try {
