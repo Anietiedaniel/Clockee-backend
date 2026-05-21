@@ -4,7 +4,7 @@ import morgan from "morgan";
 import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
-import { sendEmail } from "../email-service/emailService.js";
+// import { sendEmail } from "../email-service/emailService.js";
 
 import {connectDB} from "@clockee/shared";
 import adminRoutes from "./routes/adminRoutes.js";
