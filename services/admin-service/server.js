@@ -4,7 +4,7 @@ import morgan from "morgan";
 import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
-import { sendEmail } from "../email-service/emailService.js";
+// import { sendEmail } from "../email-service/emailService.js";
 
 import {connectDB} from "@clockee/shared";
 import adminRoutes from "./routes/adminRoutes.js";
@@ -77,23 +77,23 @@ cron.schedule("*/10 * * * *", async () => {
   });
 });
 
-app.get("/test-email", async (req, res) => {
-  try {
-    const result = await sendEmail({
-      to: "cieosinstitute@gmail.com",
-      subject: "Test Email",
-      html: "<h1>Test</h1>",
-    });
+// app.get("/test-email", async (req, res) => {
+//   try {
+//     const result = await sendEmail({
+//       to: "cieosinstitute@gmail.com",
+//       subject: "Test Email",
+//       html: "<h1>Test</h1>",
+//     });
 
-    res.json({ success: true, result });
-  } catch (err) {
-    res.json({
-      success: false,
-      error: err.message,
-      stack: err.stack, // 👈 add this temporarily
-    });
-  }
-});
+//     res.json({ success: true, result });
+//   } catch (err) {
+//     res.json({
+//       success: false,
+//       error: err.message,
+//       stack: err.stack, // 👈 add this temporarily
+//     });
+//   }
+// });
 
 
  
