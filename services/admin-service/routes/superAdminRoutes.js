@@ -22,7 +22,7 @@ router.get("/status", (req, res) => {
 
 
 router.post(
-  "/register", authorizeSuperAdmin,
+  "/register",protect, authorizeSuperAdmin,
   createInstitutionWithOwner
 );
 
