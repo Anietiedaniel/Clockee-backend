@@ -1,4 +1,4 @@
-import { User,InviteToken, Institution} from "@clockee/shared";
+import { User,InviteToken, Institution,AttendanceLog} from "@clockee/shared";
 import crypto from "crypto";
 import fs from "fs";
 import bcrypt from "bcrypt";
@@ -454,8 +454,15 @@ export const getAllAdmins = async (req, res) => {
 // admin and supper admin lookup
 export const getUserById = async (req, res) => {
   try {
-    const { role: requesterRoles, institutionId, userId } = req.user;
+    const {
+      role: requesterRoles,
+      institutionId,
+      userId,
+    } = req.user;
+
     const { id } = req.params;
+
+    /* ================= VALIDATE ID ================= */
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -464,28 +471,46 @@ export const getUserById = async (req, res) => {
       });
     }
 
+    /* ================= ROLES ================= */
+
     const roles = Array.isArray(requesterRoles)
       ? requesterRoles
       : [requesterRoles];
 
-    const isSuperAdmin = roles.includes("super_admin");
-    const isAdmin = roles.includes("admin");
-    const isSelf = String(userId) === String(id);
+    const isSuperAdmin =
+      roles.includes("super_admin");
 
-    if (!isSuperAdmin && !isAdmin && !isSelf) {
+    const isAdmin =
+      roles.includes("admin");
+
+    const isSelf =
+      String(userId) === String(id);
+
+    if (
+      !isSuperAdmin &&
+      !isAdmin &&
+      !isSelf
+    ) {
       return res.status(403).json({
         success: false,
         message: "Not authorized",
       });
     }
 
+    /* ================= FILTER ================= */
+
     const filter = { _id: id };
 
     if (!isSuperAdmin) {
-      filter.institutionId = institutionId;
+      filter.institutionId =
+        institutionId;
     }
 
-    const user = await User.findOne(filter).select(
+    /* ================= FETCH USER ================= */
+
+    const user = await User.findOne(
+      filter
+    ).select(
       "-passwordHash -backupCodes"
     );
 
@@ -496,17 +521,381 @@ export const getUserById = async (req, res) => {
       });
     }
 
+    /* ================= SETTINGS ================= */
+
+    const setting =
+      await InstitutionSetting.findOne({
+        institutionId:
+          user.institutionId,
+        isActive: true,
+      });
+
+    const timezone =
+      setting?.timezone ||
+      "Africa/Lagos";
+
+    const expectedDailyHours =
+      setting?.expectedWorkHours || 8;
+
+    const workingDays =
+      setting?.workingDays || [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+      ];
+
+    const now = moment().tz(timezone);
+
+    const todayStart = now
+      .clone()
+      .startOf("day")
+      .toDate();
+
+    const todayEnd = now
+      .clone()
+      .endOf("day")
+      .toDate();
+
+    /* ================= TODAY LOGS ================= */
+
+    const todayLogs =
+      await AttendanceLog.find({
+        userId: user._id,
+        isActive: true,
+        timestamp: {
+          $gte: todayStart,
+          $lte: todayEnd,
+        },
+      }).sort({ timestamp: 1 });
+
+    const clockIn = todayLogs.find(
+      (l) =>
+        l.actionType === "clock-in"
+    );
+
+    const clockOut =
+      todayLogs.find(
+        (l) =>
+          l.actionType === "clock-out"
+      );
+
+    /* ================= TODAY WORK HOURS ================= */
+
+    let totalWorkedToday = 0;
+
+    if (clockIn && clockOut) {
+      totalWorkedToday =
+        (clockOut.workDurationMinutes ||
+          0) / 60;
+    } else if (
+      clockIn &&
+      !clockOut
+    ) {
+      totalWorkedToday =
+        now.diff(
+          moment(clockIn.timestamp).tz(
+            timezone
+          ),
+          "minutes"
+        ) / 60;
+    }
+
+    /* ================= CLOCK STATUS ================= */
+
+    let minutesLate = 0;
+    let clockInStatus = null;
+
+    if (clockIn) {
+      minutesLate =
+        clockIn.minutesLate || 0;
+
+      clockInStatus =
+        clockIn.clockInStatus ||
+        (minutesLate > 0
+          ? "late"
+          : "on-time");
+    }
+
+    let clockOutStatus = null;
+
+    if (clockOut) {
+      clockOutStatus =
+        clockOut.clockOutStatus ||
+        null;
+    }
+
+    /* ================= WEEK RANGE ================= */
+
+    const weekStart = now
+      .clone()
+      .startOf("isoWeek");
+
+    const weekEnd = now
+      .clone()
+      .endOf("isoWeek");
+
+    /* ================= EMPLOYMENT SAFETY ================= */
+
+    const employmentStart =
+      moment(user.createdAt)
+        .tz(timezone)
+        .startOf("day");
+
+    const effectiveWeekStart =
+      moment.max(
+        weekStart.clone(),
+        employmentStart.clone()
+      );
+
+    /* ================= WEEK CLOCK-IN ================= */
+
+    const weekClockInLogs =
+      await AttendanceLog.find({
+        userId: user._id,
+        actionType: "clock-in",
+        isActive: true,
+        timestamp: {
+          $gte:
+            effectiveWeekStart.toDate(),
+          $lte: weekEnd.toDate(),
+        },
+      });
+
+    /* ================= WEEK CLOCK-OUT ================= */
+
+    const weekClockOutLogs =
+      await AttendanceLog.find({
+        userId: user._id,
+        actionType: "clock-out",
+        isActive: true,
+        timestamp: {
+          $gte:
+            effectiveWeekStart.toDate(),
+          $lte: weekEnd.toDate(),
+        },
+      });
+
+    /* ================= PRESENT DAYS ================= */
+
+    const uniquePresentDays =
+      new Set(
+        weekClockInLogs.map((log) =>
+          moment(log.timestamp)
+            .tz(timezone)
+            .format("YYYY-MM-DD")
+        )
+      );
+
+    const presentDays =
+      uniquePresentDays.size;
+
+    /* ================= LATE DAYS ================= */
+
+    const uniqueLateDays =
+      new Set(
+        weekClockInLogs
+          .filter(
+            (log) =>
+              (log.minutesLate || 0) >
+              0
+          )
+          .map((log) =>
+            moment(log.timestamp)
+              .tz(timezone)
+              .format("YYYY-MM-DD")
+          )
+      );
+
+    const lateDays =
+      uniqueLateDays.size;
+
+    /* ================= ELIGIBLE DAYS ================= */
+
+    let eligibleWorkingDays = 0;
+
+    const cursor =
+      effectiveWeekStart.clone();
+
+    while (
+      cursor.isSameOrBefore(
+        weekEnd,
+        "day"
+      )
+    ) {
+      const dayName =
+        cursor.format("ddd");
+
+      if (
+        workingDays.includes(dayName)
+      ) {
+        eligibleWorkingDays++;
+      }
+
+      cursor.add(1, "day");
+    }
+
+    /* ================= ABSENT DAYS ================= */
+
+    const absentDays = Math.max(
+      0,
+      eligibleWorkingDays -
+        presentDays
+    );
+
+    /* ================= ATTENDANCE RATE ================= */
+
+    const attendanceRate =
+      eligibleWorkingDays > 0
+        ? Math.round(
+            (presentDays /
+              eligibleWorkingDays) *
+              100
+          )
+        : 0;
+
+    /* ================= TOTAL HOURS ================= */
+
+    const totalHoursWeek =
+      weekClockOutLogs.reduce(
+        (acc, log) =>
+          acc +
+          (log.workDurationMinutes ||
+            0),
+        0
+      ) / 60;
+
+    /* ================= OVERTIME ================= */
+
+    const expectedWeeklyHours =
+      expectedDailyHours *
+      eligibleWorkingDays;
+
+    const overtimeHours =
+      totalHoursWeek >
+      expectedWeeklyHours
+        ? totalHoursWeek -
+          expectedWeeklyHours
+        : 0;
+
+    /* ================= WEEKLY TREND ================= */
+
+    const weeklyTrend = [];
+
+    for (let i = 0; i < 7; i++) {
+      const dayMoment =
+        weekStart.clone().add(
+          i,
+          "days"
+        );
+
+      const dayName =
+        dayMoment.format("ddd");
+
+      const dayDate =
+        dayMoment.format(
+          "YYYY-MM-DD"
+        );
+
+      const isWorkingDay =
+        workingDays.includes(
+          dayName
+        );
+
+      const wasPresent =
+        uniquePresentDays.has(
+          dayDate
+        );
+
+      weeklyTrend.push({
+        day: dayName,
+
+        percentage: isWorkingDay
+          ? wasPresent
+            ? 100
+            : 0
+          : 0,
+      });
+    }
+
+    /* ================= RESPONSE ================= */
+
     return res.status(200).json({
       success: true,
-      data: user,
-    });
 
+      data: {
+        user,
+
+        attendance: {
+          todayStatus: {
+            clockedIn: !!clockIn,
+
+            clockInTime: clockIn
+              ? clockIn.timestamp
+              : null,
+
+            clockInStatus,
+
+            minutesLate,
+
+            clockedOut:
+              !!clockOut,
+
+            clockOutTime:
+              clockOut
+                ? clockOut.timestamp
+                : null,
+
+            clockOutStatus,
+
+            totalWorkedToday:
+              Number(
+                totalWorkedToday.toFixed(
+                  2
+                )
+              ),
+          },
+
+          weeklyStats: {
+            presentDays,
+
+            lateDays,
+
+            absentDays,
+
+            attendanceRate,
+
+            totalHoursWeek:
+              Number(
+                totalHoursWeek.toFixed(
+                  2
+                )
+              ),
+
+            overtimeHours:
+              Number(
+                overtimeHours.toFixed(
+                  2
+                )
+              ),
+          },
+
+          weeklyTrend,
+        },
+      },
+    });
   } catch (err) {
-    console.error("Error fetching user:", err);
+    console.error(
+      "Error fetching user:",
+      err
+    );
 
     return res.status(500).json({
       success: false,
-      message: err.message, // ✅ FIXED
+      message:
+        err.message ||
+        "Server error",
     });
   }
 };
