@@ -2,9 +2,9 @@ import express from "express";
 import { protect } from "@clockee/shared";
 import { authorizeAdmin } from "../middleware/authorizeAdmin.js";
 import { generateQrInvite } from "../controllers/inviteController.js";
-import { getPendingUsers,registerViaPublicOnboardingLink, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById,adminUpdateUser,
+import { getPendingUsers,registerViaPublicOnboardingLink, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById,getPayrollSummary,adminUpdateUser,
   reactivateUser, rejectUser, generatePublicOnboardingLink, 
-  promoteToAdmin, demoteAdmin,getAllAdmins,getPayrollSummary} from "../controllers/adminController.js";
+  promoteToAdmin, demoteAdmin,getAllAdmins} from "../controllers/adminController.js";
 
 const upload = multer({ dest: "uploads/" });
 import multer from "multer";
