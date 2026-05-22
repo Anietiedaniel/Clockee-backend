@@ -1,4 +1,4 @@
-import { User,InviteToken, Institution,AttendanceLog, InstitutionSetting} from "@clockee/shared";
+import { User,InviteToken,Branch, Institution,AttendanceLog, InstitutionSetting} from "@clockee/shared";
 import crypto from "crypto";
 import fs from "fs";
 import bcrypt from "bcrypt";
@@ -511,9 +511,14 @@ export const getUserById = async (req, res) => {
 
     const user = await User.findOne(
       filter
-    ).select(
-      "-passwordHash -backupCodes"
-    );
+    )
+      .select(
+        "-passwordHash -backupCodes"
+      )
+      .populate({
+        path: "branchId",
+        select: "name code address",
+      });
 
     if (!user) {
       return res.status(404).json({
@@ -826,7 +831,29 @@ export const getUserById = async (req, res) => {
       success: true,
 
       data: {
-        user,
+        user: {
+          ...user.toObject(),
+
+          branch:
+            user.branchId
+              ? {
+                  _id:
+                    user.branchId._id,
+
+                  name:
+                    user.branchId.name,
+
+                  code:
+                    user.branchId.code ||
+                    null,
+
+                  address:
+                    user.branchId
+                      .address ||
+                    null,
+                }
+              : null,
+        },
 
         attendance: {
           todayStatus: {
