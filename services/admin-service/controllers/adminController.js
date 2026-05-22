@@ -1,4 +1,4 @@
-import { User,InviteToken, Institution,AttendanceLog} from "@clockee/shared";
+import { User,InviteToken, Institution,AttendanceLog, InstitutionSetting} from "@clockee/shared";
 import crypto from "crypto";
 import fs from "fs";
 import bcrypt from "bcrypt";
