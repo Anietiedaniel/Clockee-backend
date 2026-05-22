@@ -1350,6 +1350,532 @@ export const getMonthlyPayrollSummary = async (
   }
 };
 
+export const getInstitutionPayrollSummary = async (req, res) => {
+    try {
+      const {
+        institutionId,
+        role: requesterRoles,
+      } = req.user;
+
+      const month =
+        parseInt(req.query.month) ||
+        moment().month() + 1;
+
+      const year =
+        parseInt(req.query.year) ||
+        moment().year();
+
+      const { branchId } = req.query;
+
+      /* ================= ROLE CHECK ================= */
+
+      const roles = Array.isArray(
+        requesterRoles
+      )
+        ? requesterRoles
+        : [requesterRoles];
+
+      const isAdmin =
+        roles.includes("admin");
+
+      const isSuperAdmin =
+        roles.includes(
+          "super_admin"
+        );
+
+      if (
+        !isAdmin &&
+        !isSuperAdmin
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Not authorized to access payroll summary",
+        });
+      }
+
+      /* ================= SETTINGS ================= */
+
+      const setting =
+        await InstitutionSetting.findOne({
+          institutionId,
+          isActive: true,
+        });
+
+      const timezone =
+        setting?.timezone ||
+        "Africa/Lagos";
+
+      const expectedDailyHours =
+        setting?.expectedWorkHours ||
+        8;
+
+      const workingDays =
+        setting?.workingDays || [
+          "Mon",
+          "Tue",
+          "Wed",
+          "Thu",
+          "Fri",
+        ];
+
+      /* ================= DATE RANGE ================= */
+
+      const startDate = moment
+        .tz(
+          {
+            year,
+            month: month - 1,
+            day: 1,
+          },
+          timezone
+        )
+        .startOf("month");
+
+      const endDate = startDate
+        .clone()
+        .endOf("month");
+
+      /* ================= USER FILTER ================= */
+
+      const userFilter = {
+        institutionId,
+        isActive: true,
+
+        role: {
+          $nin: [
+            "pending",
+            "rejected",
+            "super_admin",
+          ],
+        },
+
+        createdAt: {
+          $lte: endDate.toDate(),
+        },
+      };
+
+      if (
+        branchId &&
+        mongoose.Types.ObjectId.isValid(
+          branchId
+        )
+      ) {
+        userFilter.branchId =
+          branchId;
+      }
+
+      /* ================= USERS ================= */
+
+      const users =
+        await User.find(userFilter)
+          .select(
+            `
+          name
+          email
+          role
+          studentOrStaffId
+          departmentOrUnit
+          branchId
+          createdAt
+        `
+          )
+          .populate({
+            path: "branchId",
+            select: "name code",
+          })
+          .lean();
+
+      /* ================= FETCH LOGS ================= */
+
+      const userIds = users.map(
+        (u) => u._id
+      );
+
+      const logs =
+        await AttendanceLog.find({
+          institutionId,
+
+          userId: {
+            $in: userIds,
+          },
+
+          isActive: true,
+
+          timestamp: {
+            $gte:
+              startDate.toDate(),
+
+            $lte: endDate.toDate(),
+          },
+        }).lean();
+
+      /* ================= GROUP LOGS ================= */
+
+      const logsByUser = {};
+
+      for (const log of logs) {
+        const key = String(
+          log.userId
+        );
+
+        if (!logsByUser[key]) {
+          logsByUser[key] = [];
+        }
+
+        logsByUser[key].push(log);
+      }
+
+      /* ================= SUMMARY TOTALS ================= */
+
+      let totalPresentDays = 0;
+
+      let totalAbsentDays = 0;
+
+      let totalLateDays = 0;
+
+      let totalOvertimeHours = 0;
+
+      let totalWorkedHours = 0;
+
+      /* ================= STAFF PAYROLL ================= */
+
+      const staff = [];
+
+      for (const user of users) {
+        const userLogs =
+          logsByUser[
+            String(user._id)
+          ] || [];
+
+        /* ===== EMPLOYMENT SAFETY ===== */
+
+        const employmentStart =
+          moment(user.createdAt)
+            .tz(timezone)
+            .startOf("day");
+
+        const effectiveStart =
+          moment.max(
+            startDate.clone(),
+            employmentStart.clone()
+          );
+
+        /* ===== WORKING DAYS ===== */
+
+        let eligibleWorkingDays = 0;
+
+        const cursor =
+          effectiveStart.clone();
+
+        while (
+          cursor.isSameOrBefore(
+            endDate,
+            "day"
+          )
+        ) {
+          const dayName =
+            cursor.format("ddd");
+
+          if (
+            workingDays.includes(
+              dayName
+            )
+          ) {
+            eligibleWorkingDays++;
+          }
+
+          cursor.add(1, "day");
+        }
+
+        /* ===== CLOCK-IN LOGS ===== */
+
+        const clockInLogs =
+          userLogs.filter(
+            (l) =>
+              l.actionType ===
+              "clock-in"
+          );
+
+        /* ===== CLOCK-OUT LOGS ===== */
+
+        const clockOutLogs =
+          userLogs.filter(
+            (l) =>
+              l.actionType ===
+              "clock-out"
+          );
+
+        /* ===== UNIQUE PRESENT DAYS ===== */
+
+        const uniquePresentDays =
+          new Set(
+            clockInLogs.map((log) =>
+              moment(log.timestamp)
+                .tz(timezone)
+                .format(
+                  "YYYY-MM-DD"
+                )
+            )
+          );
+
+        const presentDays =
+          uniquePresentDays.size;
+
+        /* ===== UNIQUE LATE DAYS ===== */
+
+        const uniqueLateDays =
+          new Set(
+            clockInLogs
+              .filter(
+                (log) =>
+                  (log.minutesLate ||
+                    0) > 0
+              )
+              .map((log) =>
+                moment(
+                  log.timestamp
+                )
+                  .tz(timezone)
+                  .format(
+                    "YYYY-MM-DD"
+                  )
+              )
+          );
+
+        const lateDays =
+          uniqueLateDays.size;
+
+        /* ===== ABSENT ===== */
+
+        const absentDays =
+          Math.max(
+            0,
+            eligibleWorkingDays -
+              presentDays
+          );
+
+        /* ===== HOURS ===== */
+
+        let totalWorkedMinutes = 0;
+
+        let overtimeMinutes = 0;
+
+        let underWorkedMinutes = 0;
+
+        for (const log of clockOutLogs) {
+          const worked =
+            log.workDurationMinutes ||
+            0;
+
+          totalWorkedMinutes +=
+            worked;
+
+          const expectedMinutes =
+            expectedDailyHours *
+            60;
+
+          if (
+            worked >
+            expectedMinutes
+          ) {
+            overtimeMinutes +=
+              worked -
+              expectedMinutes;
+          }
+
+          if (
+            worked <
+            expectedMinutes
+          ) {
+            underWorkedMinutes +=
+              expectedMinutes -
+              worked;
+          }
+        }
+
+        /* ===== CALCULATIONS ===== */
+
+        const workedHours =
+          totalWorkedMinutes / 60;
+
+        const overtimeHours =
+          overtimeMinutes / 60;
+
+        const underWorkedHours =
+          underWorkedMinutes / 60;
+
+        const attendanceRate =
+          eligibleWorkingDays > 0
+            ? Math.round(
+                (presentDays /
+                  eligibleWorkingDays) *
+                  100
+              )
+            : 0;
+
+        /* ===== GLOBAL TOTALS ===== */
+
+        totalPresentDays +=
+          presentDays;
+
+        totalAbsentDays +=
+          absentDays;
+
+        totalLateDays +=
+          lateDays;
+
+        totalOvertimeHours +=
+          overtimeHours;
+
+        totalWorkedHours +=
+          workedHours;
+
+        /* ===== PUSH STAFF ===== */
+
+        staff.push({
+          _id: user._id,
+
+          name: user.name,
+
+          email: user.email,
+
+          role: user.role,
+
+          studentOrStaffId:
+            user.studentOrStaffId ||
+            null,
+
+          departmentOrUnit:
+            user.departmentOrUnit ||
+            null,
+
+          branch: user.branchId
+            ? {
+                _id:
+                  user.branchId
+                    ._id,
+
+                name:
+                  user.branchId
+                    .name,
+
+                code:
+                  user.branchId
+                    .code ||
+                  null,
+              }
+            : null,
+
+          attendance: {
+            eligibleWorkingDays,
+
+            presentDays,
+
+            absentDays,
+
+            lateDays,
+
+            attendanceRate,
+          },
+
+          hours: {
+            expectedHours:
+              eligibleWorkingDays *
+              expectedDailyHours,
+
+            workedHours:
+              Number(
+                workedHours.toFixed(
+                  2
+                )
+              ),
+
+            overtimeHours:
+              Number(
+                overtimeHours.toFixed(
+                  2
+                )
+              ),
+
+            underWorkedHours:
+              Number(
+                underWorkedHours.toFixed(
+                  2
+                )
+              ),
+          },
+
+          payrollFlags: {
+            excessiveLate:
+              lateDays >= 5,
+
+            excessiveAbsence:
+              absentDays >= 3,
+
+            hasOvertime:
+              overtimeHours > 0,
+
+            hasUnderWorkedHours:
+              underWorkedHours >
+              0,
+          },
+        });
+      }
+
+      /* ================= RESPONSE ================= */
+
+      return res.status(200).json({
+        success: true,
+
+        data: {
+          month,
+          year,
+
+          summary: {
+            totalStaff:
+              staff.length,
+
+            totalPresentDays,
+
+            totalAbsentDays,
+
+            totalLateDays,
+
+            totalWorkedHours:
+              Number(
+                totalWorkedHours.toFixed(
+                  2
+                )
+              ),
+
+            totalOvertimeHours:
+              Number(
+                totalOvertimeHours.toFixed(
+                  2
+                )
+              ),
+          },
+
+          staff,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Institution payroll summary error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          error.message ||
+          "Failed to generate payroll summary",
+      });
+    }
+};
+
+
 export const deactivateUser = async (req, res) => {
   try {
     const { id: targetUserId } = req.params;

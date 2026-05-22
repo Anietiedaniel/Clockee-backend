@@ -2,7 +2,7 @@ import express from "express";
 import { protect } from "@clockee/shared";
 import { authorizeAdmin } from "../middleware/authorizeAdmin.js";
 import { generateQrInvite } from "../controllers/inviteController.js";
-import { getPendingUsers,registerViaPublicOnboardingLink, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById,getPayrollSummary,adminUpdateUser,
+import { getPendingUsers,registerViaPublicOnboardingLink, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById,getMonthlyPayrollSummary, getInstitutionPayrollSummary,adminUpdateUser,
   reactivateUser, rejectUser, generatePublicOnboardingLink, 
   promoteToAdmin, demoteAdmin,getAllAdmins} from "../controllers/adminController.js";
 
@@ -26,12 +26,21 @@ router.get("/institution/admins", protect, authorizeAdmin, getAllAdmins);
 
 
 router.get("/public/invite",protect, getInstitutionInvite );
+
 router.get(
-  "/payroll-summary",
+  "/payroll/:id/monthly-summary",
   protect,
   authorizeAdmin,
-  getPayrollSummary
+  getMonthlyPayrollSummary
 );
+
+router.get(
+  "/institution-summary",
+  protect,
+  authorizeAdmin,
+  getInstitutionPayrollSummary
+);
+
 
 router.post("/register/public-link",protect, authorizeAdmin, generatePublicOnboardingLink)
 
