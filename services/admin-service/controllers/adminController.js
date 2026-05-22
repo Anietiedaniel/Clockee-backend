@@ -928,6 +928,427 @@ export const getUserById = async (req, res) => {
   }
 };
 
+// payroll controller
+export const getMonthlyPayrollSummary = async (
+  req,
+  res
+) => {
+  try {
+    const {
+      institutionId,
+      role: requesterRoles,
+    } = req.user;
+
+    const { id } = req.params;
+
+    const month =
+      parseInt(req.query.month) ||
+      moment().month() + 1;
+
+    const year =
+      parseInt(req.query.year) ||
+      moment().year();
+
+    /* ================= VALIDATE USER ================= */
+
+    if (
+      !mongoose.Types.ObjectId.isValid(id)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    /* ================= ROLE CHECK ================= */
+
+    const roles = Array.isArray(
+      requesterRoles
+    )
+      ? requesterRoles
+      : [requesterRoles];
+
+    const isAdmin =
+      roles.includes("admin");
+
+    const isSuperAdmin =
+      roles.includes("super_admin");
+
+    if (
+      !isAdmin &&
+      !isSuperAdmin
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Not authorized to access payroll summary",
+      });
+    }
+
+    /* ================= FETCH USER ================= */
+
+    const user = await User.findOne({
+      _id: id,
+      institutionId,
+    })
+      .select(
+        "name email role studentOrStaffId departmentOrUnit branchId createdAt"
+      )
+      .populate({
+        path: "branchId",
+        select: "name code",
+      });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    /* ================= SETTINGS ================= */
+
+    const setting =
+      await InstitutionSetting.findOne({
+        institutionId,
+        isActive: true,
+      });
+
+    const timezone =
+      setting?.timezone ||
+      "Africa/Lagos";
+
+    const expectedDailyHours =
+      setting?.expectedWorkHours || 8;
+
+    const workingDays =
+      setting?.workingDays || [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+      ];
+
+    /* ================= DATE RANGE ================= */
+
+    const startDate = moment
+      .tz(
+        {
+          year,
+          month: month - 1,
+          day: 1,
+        },
+        timezone
+      )
+      .startOf("month");
+
+    const endDate = startDate
+      .clone()
+      .endOf("month");
+
+    /* ================= EMPLOYMENT SAFETY ================= */
+
+    const employmentStart =
+      moment(user.createdAt)
+        .tz(timezone)
+        .startOf("day");
+
+    const effectiveStart =
+      moment.max(
+        startDate.clone(),
+        employmentStart.clone()
+      );
+
+    /* ================= FETCH LOGS ================= */
+
+    const clockInLogs =
+      await AttendanceLog.find({
+        userId: user._id,
+        actionType: "clock-in",
+        isActive: true,
+        timestamp: {
+          $gte:
+            effectiveStart.toDate(),
+          $lte: endDate.toDate(),
+        },
+      });
+
+    const clockOutLogs =
+      await AttendanceLog.find({
+        userId: user._id,
+        actionType: "clock-out",
+        isActive: true,
+        timestamp: {
+          $gte:
+            effectiveStart.toDate(),
+          $lte: endDate.toDate(),
+        },
+      });
+
+    /* ================= UNIQUE PRESENT DAYS ================= */
+
+    const uniquePresentDays =
+      new Set(
+        clockInLogs.map((log) =>
+          moment(log.timestamp)
+            .tz(timezone)
+            .format("YYYY-MM-DD")
+        )
+      );
+
+    const presentDays =
+      uniquePresentDays.size;
+
+    /* ================= UNIQUE LATE DAYS ================= */
+
+    const uniqueLateDays =
+      new Set(
+        clockInLogs
+          .filter(
+            (log) =>
+              (log.minutesLate || 0) >
+              0
+          )
+          .map((log) =>
+            moment(log.timestamp)
+              .tz(timezone)
+              .format("YYYY-MM-DD")
+          )
+      );
+
+    const lateDays =
+      uniqueLateDays.size;
+
+    /* ================= ELIGIBLE WORKING DAYS ================= */
+
+    let eligibleWorkingDays = 0;
+
+    const cursor =
+      effectiveStart.clone();
+
+    while (
+      cursor.isSameOrBefore(
+        endDate,
+        "day"
+      )
+    ) {
+      const dayName =
+        cursor.format("ddd");
+
+      if (
+        workingDays.includes(dayName)
+      ) {
+        eligibleWorkingDays++;
+      }
+
+      cursor.add(1, "day");
+    }
+
+    /* ================= ABSENT DAYS ================= */
+
+    const absentDays = Math.max(
+      0,
+      eligibleWorkingDays -
+        presentDays
+    );
+
+    /* ================= HOURS ================= */
+
+    let totalWorkedMinutes = 0;
+
+    let overtimeMinutes = 0;
+
+    let underWorkedMinutes = 0;
+
+    let earlyExitDays = 0;
+
+    let overtimeDays = 0;
+
+    for (const log of clockOutLogs) {
+      const worked =
+        log.workDurationMinutes || 0;
+
+      totalWorkedMinutes += worked;
+
+      const expectedMinutes =
+        expectedDailyHours * 60;
+
+      /* ===== OVERTIME ===== */
+
+      if (worked > expectedMinutes) {
+        overtimeMinutes +=
+          worked - expectedMinutes;
+
+        overtimeDays++;
+      }
+
+      /* ===== UNDERWORK ===== */
+
+      if (worked < expectedMinutes) {
+        underWorkedMinutes +=
+          expectedMinutes - worked;
+      }
+
+      /* ===== EARLY EXIT ===== */
+
+      if (
+        log.clockOutStatus ===
+        "early_exit"
+      ) {
+        earlyExitDays++;
+      }
+    }
+
+    /* ================= ATTENDANCE RATE ================= */
+
+    const attendanceRate =
+      eligibleWorkingDays > 0
+        ? Math.round(
+            (presentDays /
+              eligibleWorkingDays) *
+              100
+          )
+        : 0;
+
+    /* ================= EXPECTED HOURS ================= */
+
+    const expectedHours =
+      eligibleWorkingDays *
+      expectedDailyHours;
+
+    const workedHours =
+      totalWorkedMinutes / 60;
+
+    const overtimeHours =
+      overtimeMinutes / 60;
+
+    const underWorkedHours =
+      underWorkedMinutes / 60;
+
+    /* ================= PAYROLL FLAGS ================= */
+
+    const payrollFlags = {
+      excessiveLate:
+        lateDays >= 5,
+
+      excessiveAbsence:
+        absentDays >= 3,
+
+      hasUnderWorkedHours:
+        underWorkedHours > 0,
+
+      hasOvertime:
+        overtimeHours > 0,
+    };
+
+    /* ================= RESPONSE ================= */
+
+    return res.status(200).json({
+      success: true,
+
+      data: {
+        user: {
+          _id: user._id,
+
+          name: user.name,
+
+          email: user.email,
+
+          role: user.role,
+
+          studentOrStaffId:
+            user.studentOrStaffId ||
+            null,
+
+          departmentOrUnit:
+            user.departmentOrUnit ||
+            null,
+
+          branch: user.branchId
+            ? {
+                _id:
+                  user.branchId._id,
+
+                name:
+                  user.branchId.name,
+
+                code:
+                  user.branchId.code ||
+                  null,
+              }
+            : null,
+        },
+
+        payrollPeriod: {
+          month,
+          year,
+
+          startDate:
+            effectiveStart.format(
+              "YYYY-MM-DD"
+            ),
+
+          endDate:
+            endDate.format(
+              "YYYY-MM-DD"
+            ),
+        },
+
+        attendance: {
+          eligibleWorkingDays,
+
+          presentDays,
+
+          absentDays,
+
+          lateDays,
+
+          attendanceRate,
+        },
+
+        hours: {
+          expectedHours,
+
+          workedHours: Number(
+            workedHours.toFixed(2)
+          ),
+
+          overtimeHours: Number(
+            overtimeHours.toFixed(2)
+          ),
+
+          underWorkedHours:
+            Number(
+              underWorkedHours.toFixed(
+                2
+              )
+            ),
+        },
+
+        incidents: {
+          earlyExitDays,
+
+          overtimeDays,
+        },
+
+        payrollFlags,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Payroll summary error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Failed to generate payroll summary",
+    });
+  }
+};
 
 export const deactivateUser = async (req, res) => {
   try {

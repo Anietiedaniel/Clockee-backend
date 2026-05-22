@@ -4,7 +4,7 @@ import { authorizeAdmin } from "../middleware/authorizeAdmin.js";
 import { generateQrInvite } from "../controllers/inviteController.js";
 import { getPendingUsers,registerViaPublicOnboardingLink, updateUserApproval, getAllUsers,createInvite, adminCreateUser,resendInvite,registerWithTokenInvite, disableInstitutionInvite, getInstitutionInvite, bulkInvite,  deactivateUser,  updateUserRemoteAccess, getUserById,adminUpdateUser,
   reactivateUser, rejectUser, generatePublicOnboardingLink, 
-  promoteToAdmin, demoteAdmin,getAllAdmins} from "../controllers/adminController.js";
+  promoteToAdmin, demoteAdmin,getAllAdmins,getPayrollSummary} from "../controllers/adminController.js";
 
 const upload = multer({ dest: "uploads/" });
 import multer from "multer";
@@ -26,6 +26,12 @@ router.get("/institution/admins", protect, authorizeAdmin, getAllAdmins);
 
 
 router.get("/public/invite",protect, getInstitutionInvite );
+router.get(
+  "/payroll-summary",
+  protect,
+  authorizeAdmin,
+  getPayrollSummary
+);
 
 router.post("/register/public-link",protect, authorizeAdmin, generatePublicOnboardingLink)
 
