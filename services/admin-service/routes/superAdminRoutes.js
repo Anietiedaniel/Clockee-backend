@@ -5,7 +5,7 @@ import { authorizeSuperAdmin } from "../middleware/authorizeSuperAdmin.js";
 import {
   getAllInstitutions,
   toggleInstitutionStatus,
-  assignInstitutionAdmin,getAllInstitutionOwners,
+  assignInstitutionAdmin,getAllInstitutionOwners,  getSuperAdminDashboardOverview,
   getAllUsersPlatform, updateUserRole,adminOnboardStatus,
   superCreateAdmin, createInstitutionWithOwner, getAllAdminsPlatform,
 } from "../controllers/superAdminController.js";
@@ -24,6 +24,12 @@ router.get("/status", (req, res) => {
 router.post(
   "/register",protect, authorizeSuperAdmin,
   createInstitutionWithOwner
+);
+
+router.get(
+  "/dashboard/overview",
+  verifyToken,
+  getSuperAdminDashboardOverview
 );
 
 router.post("/create/:id/admin",protect, authorizeSuperAdmin,  superCreateAdmin);

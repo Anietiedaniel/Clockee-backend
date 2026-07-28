@@ -1,7 +1,388 @@
 
-import { Institution, User } from "@clockee/shared";
+import { Institution, User, AttendanceLog, } from "@clockee/shared";
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
+import moment from "moment-timezone";
+
+export const getSuperAdminDashboardOverview = async (req, res) => {
+  try {
+    const { role } = req.user;
+
+    if (!Array.isArray(role) || !role.includes("super_admin")) {
+      return res.status(403).json({
+        success: false,
+        message: "Only super admin can access dashboard",
+      });
+    }
+
+    const timezone = "Africa/Lagos";
+
+    const todayStart = moment()
+      .tz(timezone)
+      .startOf("day")
+      .toDate();
+
+    const todayEnd = moment()
+      .tz(timezone)
+      .endOf("day")
+      .toDate();
+
+    const monthStart = moment()
+      .tz(timezone)
+      .startOf("month")
+      .toDate();
+
+    /* ======================================================
+       INSTITUTION KPIs
+    ====================================================== */
+
+    const totalInstitutions =
+      await Institution.countDocuments();
+
+    const activeInstitutions =
+      await Institution.countDocuments({
+        isActive: true,
+      });
+
+    const disabledInstitutions =
+      await Institution.countDocuments({
+        isActive: false,
+      });
+
+    const pendingInstitutions =
+      await Institution.countDocuments({
+        status: "inactive",
+      });
+
+    const newInstitutions =
+      await Institution.countDocuments({
+        createdAt: {
+          $gte: monthStart,
+        },
+      });
+
+    /* ======================================================
+       USER KPIs
+    ====================================================== */
+
+    const totalStaff =
+      await User.countDocuments({
+        role: {
+          $in: ["staff", "student"],
+        },
+      });
+
+    const totalAdmins =
+      await User.countDocuments({
+        role: {
+          $in: ["admin"],
+        },
+      });
+
+    const newUsers =
+      await User.countDocuments({
+        createdAt: {
+          $gte: monthStart,
+        },
+      });
+
+    const activeUsersToday =
+      await AttendanceLog.distinct(
+        "userId",
+        {
+          timestamp: {
+            $gte: todayStart,
+            $lte: todayEnd,
+          },
+        }
+      );
+
+    /* ======================================================
+       TODAY ATTENDANCE
+    ====================================================== */
+
+    const todayClockIns =
+      await AttendanceLog.countDocuments({
+        actionType: "clock-in",
+        timestamp: {
+          $gte: todayStart,
+          $lte: todayEnd,
+        },
+      });
+
+    const todayLate =
+      await AttendanceLog.countDocuments({
+        actionType: "clock-in",
+        clockInStatus: {
+          $in: ["late", "very-late"],
+        },
+        timestamp: {
+          $gte: todayStart,
+          $lte: todayEnd,
+        },
+      });
+
+    const todayOnTime =
+      await AttendanceLog.countDocuments({
+        actionType: "clock-in",
+        clockInStatus: {
+          $in: [
+            "too-early",
+            "early",
+            "on-time",
+          ],
+        },
+        timestamp: {
+          $gte: todayStart,
+          $lte: todayEnd,
+        },
+      });
+
+    const attendanceRate =
+      totalStaff > 0
+        ? Number(
+            (
+              (todayClockIns / totalStaff) *
+              100
+            ).toFixed(1)
+          )
+        : 0;
+
+    const onTimeRate =
+      todayClockIns > 0
+        ? Number(
+            (
+              (todayOnTime / todayClockIns) *
+              100
+            ).toFixed(1)
+          )
+        : 0;
+
+    const absentToday =
+      Math.max(
+        totalStaff - todayClockIns,
+        0
+      );
+
+    /* ======================================================
+       LATEST INSTITUTIONS
+    ====================================================== */
+
+    const latestInstitutions =
+      await Institution.find()
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean();
+
+    const latestInstitutionData =
+      await Promise.all(
+        latestInstitutions.map(
+          async (institution) => ({
+            id: institution._id,
+
+            name: institution.name,
+
+            logo:
+              institution.logo || null,
+
+            plan:
+              institution.plan ||
+              "Free",
+
+            staffCount:
+              await User.countDocuments({
+                institutionId:
+                  institution._id,
+                role: {
+                  $in: [
+                    "staff",
+                    "student",
+                  ],
+                },
+              }),
+          })
+        )
+      );
+
+    /* ======================================================
+       ATTENDANCE OVERVIEW (LAST 7 DAYS)
+    ====================================================== */
+
+    const labels = [];
+    const clockIns = [];
+    const late = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const start = moment()
+        .tz(timezone)
+        .subtract(i, "days")
+        .startOf("day");
+
+      const end = start
+        .clone()
+        .endOf("day");
+
+      labels.push(
+        start.format("ddd")
+      );
+
+      clockIns.push(
+        await AttendanceLog.countDocuments({
+          actionType: "clock-in",
+          timestamp: {
+            $gte: start.toDate(),
+            $lte: end.toDate(),
+          },
+        })
+      );
+
+      late.push(
+        await AttendanceLog.countDocuments({
+          actionType: "clock-in",
+          clockInStatus: {
+            $in: [
+              "late",
+              "very-late",
+            ],
+          },
+          timestamp: {
+            $gte: start.toDate(),
+            $lte: end.toDate(),
+          },
+        })
+      );
+    }
+
+    /* ======================================================
+       TOP INSTITUTIONS BY ATTENDANCE
+    ====================================================== */
+
+    const institutions =
+      await Institution.find({
+        isActive: true,
+      }).lean();
+
+    const comparison =
+      await Promise.all(
+        institutions.map(
+          async (institution) => {
+            const total =
+              await User.countDocuments({
+                institutionId:
+                  institution._id,
+                role: {
+                  $in: [
+                    "staff",
+                    "student",
+                  ],
+                },
+              });
+
+            const presentUsers =
+              await AttendanceLog.distinct(
+                "userId",
+                {
+                  institutionId:
+                    institution._id,
+                  actionType:
+                    "clock-in",
+                  timestamp: {
+                    $gte:
+                      todayStart,
+                    $lte: todayEnd,
+                  },
+                }
+              );
+
+            return {
+              id: institution._id,
+
+              name:
+                institution.name,
+
+              attendancePercent:
+                total === 0
+                  ? 0
+                  : Math.round(
+                      (presentUsers.length /
+                        total) *
+                        100
+                    ),
+            };
+          }
+        )
+      );
+
+    comparison.sort(
+      (a, b) =>
+        b.attendancePercent -
+        a.attendancePercent
+    );
+
+    /* ======================================================
+       RESPONSE
+    ====================================================== */
+
+    return res.status(200).json({
+      success: true,
+
+      data: {
+        institutionKpis: {
+          total: totalInstitutions,
+          active:
+            activeInstitutions,
+          disabled:
+            disabledInstitutions,
+          pending:
+            pendingInstitutions,
+          newThisPeriod:
+            newInstitutions,
+        },
+
+        userKpis: {
+          totalStaff,
+          totalAdmins,
+          activeUsersToday:
+            activeUsersToday.length,
+          newSignupsThisPeriod:
+            newUsers,
+        },
+
+        attendanceKpis: {
+          todayClockIns,
+          todayLateCount:
+            todayLate,
+          todayAbsentCount:
+            absentToday,
+          attendanceRatePercent:
+            attendanceRate,
+          onTimeRatePercent:
+            onTimeRate,
+        },
+
+        latestInstitutions:
+          latestInstitutionData,
+
+        attendanceOverview: {
+          labels,
+          clockIns,
+          late,
+        },
+
+        institutionComparison:
+          comparison.slice(0, 5),
+      },
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Failed to load dashboard",
+    });
+  }
+};
 
 export const createInstitutionWithOwner = async (req, res) => {
   console.log("🔥 ROUTE HIT");
